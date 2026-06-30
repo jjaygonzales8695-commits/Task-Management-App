@@ -1536,7 +1536,12 @@ function rowToUser(r: Record<string,string>): UserProfile {
 export default function App() {
   const [googleReady, setGoogleReady] = useState(false);
   const [authPage, setAuthPage] = useState<"signin"|"register">("signin");
-  const [currentUser, setCurrentUser] = useState<UserProfile|null>(null);
+  const [currentUser, setCurrentUser] = useState<UserProfile|null>(() => {
+    try {
+      const saved = localStorage.getItem("litm_current_user");
+      return saved ? JSON.parse(saved) as UserProfile : null;
+    } catch { return null; }
+  });
   const [page, setPage] = useState<Page>("home");
   const [users, setUsers] = useState<UserProfile[]>(INITIAL_USERS);
   const [allTasks, setAllTasks] = useState<TasksData>(buildSeedTasks);
@@ -1572,9 +1577,65 @@ export default function App() {
     }
   }, []);
 
-  // ── Auth handlers ─────────────────────────────────────────
-  function handleSignIn(u: UserProfile){setCurrentUser(u);setPage("home");}
-  function handleSignOut(){setCurrentUser(null);setAuthPage("signin");}
+  // ── Periodic background sync ──────────────────────────────
+  // The app doesn't have real-time push updates from Sheets, so we poll
+  // every 30s for new notifications/submissions/leave requests once the
+  // user is signed in. Merges by id — never clobbers local-only state.
+  useEffect(() => {
+    if (!googleReady || !currentUser) return;
+
+    let cancelled = false;
+
+    async function syncNow() {
+      try {
+        const [sheetNotifs, sheetSubs, sheetLeave] = await Promise.all([
+          getAll<Record<string,string>>(SHEETS.NOTIFICATIONS).catch(() => []),
+          getAll<Record<string,string>>(SHEETS.SUBMISSIONS).catch(() => []),
+          getAll<Record<string,string>>(SHEETS.LEAVE_REQUESTS).catch(() => []),
+        ]);
+        if (cancelled) return;
+
+        if (sheetNotifs.length) {
+          setNotifications(prev => {
+            const byId = new Map(prev.map(n => [n.id, n]));
+            sheetNotifs.forEach(row => {
+              const n = row as unknown as AppNotification;
+              if (!byId.has(n.id)) byId.set(n.id, { ...n, read: (row.read as unknown as string) === "true" });
+            });
+            return Array.from(byId.values());
+          });
+        }
+        if (sheetSubs.length) {
+          setSubmissions(prev => {
+            const byId = new Map(prev.map(s => [s.id, s]));
+            sheetSubs.forEach(row => {
+              const s = row as unknown as Submission;
+              byId.set(s.id, s); // sheet is source of truth for status
+            });
+            return Array.from(byId.values());
+          });
+        }
+        if (sheetLeave.length) {
+          setLeaveRequests(prev => {
+            const byId = new Map(prev.map(r => [r.id, r]));
+            sheetLeave.forEach(row => {
+              const r = row as unknown as LeaveRequest;
+              byId.set(r.id, r);
+            });
+            return Array.from(byId.values());
+          });
+        }
+      } catch (err) {
+        console.error("Background sync failed:", err);
+      }
+    }
+
+    syncNow();
+    const interval = setInterval(syncNow, 30_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [googleReady, currentUser]);
+  function handleSignIn(u: UserProfile){setCurrentUser(u);setPage("home");try{localStorage.setItem("litm_current_user",JSON.stringify(u));}catch{/* ignore */}}
+  function handleSignOut(){setCurrentUser(null);setAuthPage("signin");try{localStorage.removeItem("litm_current_user");}catch{/* ignore */}}
 
   async function handleRegister(u: UserProfile){
     // 1. Update local state immediately so UI responds fast
@@ -1598,6 +1659,7 @@ export default function App() {
     // 1. Update local state
     setUsers(p=>p.map(x=>x.id===u.id?u:x));
     setCurrentUser(u);
+    try{localStorage.setItem("litm_current_user",JSON.stringify(u));}catch{/* ignore */}
     // 2. Sync to Sheets
     try {
       await updateRecord(SHEETS.USERS, {

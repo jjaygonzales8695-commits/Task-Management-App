@@ -38,11 +38,19 @@ export function useGoogleAuth(): UseGoogleAuthResult {
     }, 10_000)
 
     initGoogleClient()
-      .then(() => {
+      .then(async () => {
         if (cancelled) return
         clearTimeout(timeout)
         setIsReady(true)
-        setIsSignedIn(checkSignedIn())
+        // Try to silently restore the previous Google session (no popup).
+        // If it fails (session expired, never signed in, etc.), the user
+        // just sees the normal "Sign in with Google" button.
+        try {
+          await requestAccessToken(true)
+          if (!cancelled) setIsSignedIn(true)
+        } catch {
+          if (!cancelled) setIsSignedIn(checkSignedIn())
+        }
       })
       .catch((err: unknown) => {
         if (cancelled) return

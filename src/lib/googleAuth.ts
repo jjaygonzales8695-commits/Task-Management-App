@@ -45,7 +45,7 @@ export async function initGoogleClient(): Promise<void> {
 
 // ── Auth API ───────────────────────────────────────────────
 
-export function requestAccessToken(): Promise<void> {
+export function requestAccessToken(silent = false): Promise<void> {
   return new Promise((resolve, reject) => {
     if (!_tokenClient) {
       reject(new Error('Google client not initialised.'))
@@ -62,7 +62,9 @@ export function requestAccessToken(): Promise<void> {
       gapi.client.setToken({ access_token: _accessToken })
       resolve()
     }
-    _tokenClient.requestAccessToken({ prompt: '' })
+    // 'none' = attempt silent re-auth using the existing Google session,
+    // with no popup. Falls back to '' (interactive) when called manually.
+    _tokenClient.requestAccessToken({ prompt: silent ? 'none' : '' })
   })
 }
 
