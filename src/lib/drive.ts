@@ -49,7 +49,9 @@ export async function uploadImageToDrive(
 
   const file = (await res.json()) as DriveFile
   await makePublic(file.id)
-  file.publicUrl = `https://drive.google.com/uc?export=view&id=${file.id}`
+  // Use Drive's thumbnail endpoint — far more reliable for direct <img> embedding
+  // than the uc?export=view URL, which Google frequently blocks for hotlinking.
+  file.publicUrl = `https://drive.google.com/thumbnail?id=${file.id}&sz=w1000`
   return file
 }
 
@@ -79,7 +81,7 @@ export async function deleteFromDrive(fileId: string): Promise<void> {
 async function makePublic(fileId: string): Promise<void> {
   const token = getAccessToken()
   if (!token) return
-  await fetch(PERMISSIONS_URL(fileId), {
+  const res = await fetch(PERMISSIONS_URL(fileId), {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -87,6 +89,9 @@ async function makePublic(fileId: string): Promise<void> {
     },
     body: JSON.stringify({ type: 'anyone', role: 'reader' }),
   })
+  if (!res.ok) {
+    console.error(`Failed to make Drive file public (${res.status}): ${await res.text()}`)
+  }
 }
 
 function dataUrlToBlob(dataUrl: string): Blob {
