@@ -242,14 +242,16 @@ function SignInPage({ users, onSignIn, onGoRegister }: { users: UserProfile[]; o
         <div className="bg-card rounded-2xl shadow-lg border border-border p-7">
           <h2 className="text-base font-semibold text-foreground mb-5">Sign In to Your Account</h2>
           {error && <div className="flex items-center gap-2 text-sm text-destructive bg-red-50 border border-red-200 rounded-lg px-3 py-2.5 mb-4"><AlertCircle size={14} className="flex-shrink-0" /> {error}</div>}
-          <div className="space-y-4">
-            <FormField label="Username" value={username} onChange={setUsername} placeholder="Enter your username" autoComplete="username" />
-            <FormField label="Password" value={password} onChange={setPassword} type="password" placeholder="••••••••" autoComplete="current-password" />
-          </div>
-          <div className="flex flex-col gap-3 mt-6">
-            <button onClick={handleSignIn} className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all">Sign In</button>
-            <button onClick={onGoRegister} className="w-full py-2.5 rounded-xl border border-border text-foreground text-sm font-medium hover:bg-muted transition-all">Create New Account</button>
-          </div>
+          <form onSubmit={(e) => { e.preventDefault(); handleSignIn(); }}>
+            <div className="space-y-4">
+              <FormField label="Username" value={username} onChange={setUsername} placeholder="Enter your username" autoComplete="username" />
+              <FormField label="Password" value={password} onChange={setPassword} type="password" placeholder="••••••••" autoComplete="current-password" />
+            </div>
+            <div className="flex flex-col gap-3 mt-6">
+              <button type="submit" className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all">Sign In</button>
+              <button type="button" onClick={onGoRegister} className="w-full py-2.5 rounded-xl border border-border text-foreground text-sm font-medium hover:bg-muted transition-all">Create New Account</button>
+            </div>
+          </form>
           <div className="mt-5 p-3.5 rounded-xl bg-muted/60 border border-border space-y-1.5">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Demo Accounts</p>
             <div className="flex justify-between text-xs"><span className="text-muted-foreground">Admin</span><span className="font-mono">admin / admin123</span></div>
