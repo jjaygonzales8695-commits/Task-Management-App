@@ -1,9 +1,7 @@
-import { useState, useRef, useEffect, useCallback } from "react";
-import { useGoogleAuth } from "@/lib/useGoogleAuth";
+import { useState, useRef, useEffect } from "react";
 import {
-  getAll, insertRecord, updateRecord, SHEETS,
-} from "@/lib/sheets";
-import { uploadImageToDrive } from "@/lib/drive";
+  getAll, insertRecord, updateRecord, TABLES, uploadImageToStorage,
+} from "@/lib/supabase";
 import {
   Home, User, CheckSquare, Award, LogOut, ChevronLeft, ChevronRight,
   Plus, Edit2, Check, Eye, Camera, Upload, FileText, ChevronDown, ChevronUp,
@@ -1451,82 +1449,87 @@ function MonitoringPage({ users, allTasks, leaveRequests }: { users: UserProfile
 }
 
 // ─────────────────────────────────────────────────────────────
-// GOOGLE AUTH GATE
-// Shown before the app loads — handles the OAuth consent flow.
-// ─────────────────────────────────────────────────────────────
-function GoogleAuthGate({ onReady }: { onReady: () => void }) {
-  const { isReady, isSignedIn, signIn, error } = useGoogleAuth();
-
-  useEffect(() => {
-    if (isReady && isSignedIn) onReady();
-  }, [isReady, isSignedIn, onReady]);
-
-  if (!isReady) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center space-y-3">
-          <div className="w-10 h-10 border-4 border-accent border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-sm text-muted-foreground">Loading Google APIs…</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <div className="w-full max-w-sm text-center space-y-6">
-        <div className="inline-flex items-center justify-center w-20 h-20 rounded-full overflow-hidden bg-white shadow-lg border-4 border-accent mx-auto">
-          <ImageWithFallback src={LITMLogo} alt="LITM Logo" className="w-full h-full object-cover" />
-        </div>
-        <div>
-          <h1 className="text-lg font-bold text-foreground">LITM Task Tracker</h1>
-          <p className="text-sm text-muted-foreground mt-1">Sign in with Google to continue</p>
-        </div>
-        {error && (
-          <div className="text-sm text-destructive bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-            {error}
-          </div>
-        )}
-        <button
-          onClick={signIn}
-          className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-xl border border-border bg-card hover:bg-muted text-sm font-medium transition-all shadow-sm"
-        >
-          <svg viewBox="0 0 24 24" className="w-5 h-5" xmlns="http://www.w3.org/2000/svg">
-            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-          </svg>
-          Sign in with Google
-        </button>
-        <p className="text-xs text-muted-foreground">
-          Required to sync data with Google Sheets and Drive.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
-// SHEETS SYNC HELPERS
+// SUPABASE SYNC HELPERS
 // ─────────────────────────────────────────────────────────────
 
-/** Converts a UserProfile to a flat row array matching the Users sheet schema. */
-function userToRow(u: UserProfile): string[] {
-  return [u.id,u.username,u.lastName,u.firstName,u.middleName,u.suffix,u.nickname,
-    u.designation,u.position,u.mobilePhone,u.email,u.password,
-    String(u.isAdmin),u.profilePicture];
-}
-
-/** Converts a raw sheet object (all-string values) back to a UserProfile. */
-function rowToUser(r: Record<string,string>): UserProfile {
+/** Converts a UserProfile to a Supabase row object (snake_case columns). */
+function userToRow(u: UserProfile): Record<string, unknown> {
   return {
-    id:r.id, username:r.username, lastName:r.lastName, firstName:r.firstName,
-    middleName:r.middleName, suffix:r.suffix, nickname:r.nickname,
-    designation:r.designation, position:r.position, mobilePhone:r.mobilePhone,
-    email:r.email, password:r.password,
-    isAdmin:r.isAdmin==="true",
-    profilePicture:r.profilePicture??""
+    id: u.id, username: u.username, last_name: u.lastName, first_name: u.firstName,
+    middle_name: u.middleName, suffix: u.suffix, nickname: u.nickname,
+    designation: u.designation, position: u.position, mobile_phone: u.mobilePhone,
+    email: u.email, password: u.password, is_admin: u.isAdmin,
+    profile_picture: u.profilePicture,
+  };
+}
+
+/** Converts a Supabase row back to a UserProfile. */
+function rowToUser(r: Record<string, unknown>): UserProfile {
+  return {
+    id: String(r.id), username: String(r.username), lastName: String(r.last_name),
+    firstName: String(r.first_name), middleName: String(r.middle_name),
+    suffix: String(r.suffix ?? ""), nickname: String(r.nickname),
+    designation: String(r.designation), position: String(r.position),
+    mobilePhone: String(r.mobile_phone), email: String(r.email), password: String(r.password),
+    isAdmin: Boolean(r.is_admin), profilePicture: String(r.profile_picture ?? ""),
+  };
+}
+
+/** Converts a Supabase notification row back to AppNotification. */
+function rowToNotif(r: Record<string, unknown>): AppNotification {
+  return {
+    id: String(r.id), type: r.type as NotifType, userId: String(r.user_id),
+    userName: String(r.user_name), title: String(r.title), message: String(r.message),
+    timestamp: String(r.timestamp), read: Boolean(r.read), referenceId: String(r.reference_id),
+  };
+}
+
+/** Converts a Supabase submission row back to Submission. */
+function rowToSubmission(r: Record<string, unknown>): Submission {
+  return {
+    id: String(r.id), userId: String(r.user_id), userName: String(r.user_name),
+    dailyTaskId: String(r.daily_task_id), weeklyTaskId: String(r.weekly_task_id),
+    monthlyTaskId: String(r.monthly_task_id), taskTitle: String(r.task_title),
+    deliverable: String(r.deliverable), parentTitle: String(r.parent_title),
+    evidence: (r.evidence as string[]) ?? [], submittedAt: String(r.submitted_at),
+    status: r.status as Submission["status"], adminNote: r.admin_note as string | undefined,
+  };
+}
+
+/** Converts a Supabase leave request row back to LeaveRequest. */
+function rowToLeaveRequest(r: Record<string, unknown>): LeaveRequest {
+  return {
+    id: String(r.id), userId: String(r.user_id), userName: String(r.user_name),
+    type: r.type as LeaveType, date: String(r.date),
+    timeFrom: r.time_from as string | undefined, timeTo: r.time_to as string | undefined,
+    reason: r.reason as string | undefined, submittedAt: String(r.submitted_at),
+    status: r.status as LeaveRequest["status"], adminNote: r.admin_note as string | undefined,
+  };
+}
+
+function notifToRow(n: AppNotification): Record<string, unknown> {
+  return {
+    id: n.id, type: n.type, user_id: n.userId, user_name: n.userName,
+    title: n.title, message: n.message, timestamp: n.timestamp,
+    read: n.read, reference_id: n.referenceId,
+  };
+}
+
+function submissionToRow(s: Submission): Record<string, unknown> {
+  return {
+    id: s.id, user_id: s.userId, user_name: s.userName, daily_task_id: s.dailyTaskId,
+    weekly_task_id: s.weeklyTaskId, monthly_task_id: s.monthlyTaskId,
+    task_title: s.taskTitle, deliverable: s.deliverable, parent_title: s.parentTitle,
+    evidence: s.evidence, submitted_at: s.submittedAt, status: s.status,
+    admin_note: s.adminNote ?? null,
+  };
+}
+
+function leaveToRow(r: LeaveRequest): Record<string, unknown> {
+  return {
+    id: r.id, user_id: r.userId, user_name: r.userName, type: r.type, date: r.date,
+    time_from: r.timeFrom ?? null, time_to: r.timeTo ?? null, reason: r.reason ?? null,
+    submitted_at: r.submittedAt, status: r.status, admin_note: r.adminNote ?? null,
   };
 }
 
@@ -1534,7 +1537,6 @@ function rowToUser(r: Record<string,string>): UserProfile {
 // ROOT APP
 // ─────────────────────────────────────────────────────────────
 export default function App() {
-  const [googleReady, setGoogleReady] = useState(false);
   const [authPage, setAuthPage] = useState<"signin"|"register">("signin");
   const [currentUser, setCurrentUser] = useState<UserProfile|null>(() => {
     try {
@@ -1548,80 +1550,74 @@ export default function App() {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
-  const [loadingSheet, setLoadingSheet] = useState(false);
+  const [loadingData, setLoadingData] = useState(true);
 
   const unreadCount = notifications.filter(n=>!n.read).length;
 
-  // ── Load users from Sheets once Google is ready ──────────
-  const handleGoogleReady = useCallback(async () => {
-    setGoogleReady(true);
-    setLoadingSheet(true);
-    try {
-      const sheetUsers = await getAll<Record<string,string>>(SHEETS.USERS);
-      if (sheetUsers.length > 0) {
-        setUsers(sheetUsers.map(rowToUser));
-      } else {
-        // First run: seed the sheet with the built-in demo accounts
-        for (const u of INITIAL_USERS) {
-          await insertRecord(SHEETS.USERS, Object.fromEntries(
-            ["id","username","lastName","firstName","middleName","suffix","nickname",
-             "designation","position","mobilePhone","email","password","isAdmin","profilePicture"]
-            .map((k,i) => [k, userToRow(u)[i]])
-          ));
+  // ── Load users from Supabase on mount ─────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoadingData(true);
+      try {
+        const dbUsers = await getAll<Record<string,unknown>>(TABLES.USERS);
+        if (cancelled) return;
+        if (dbUsers.length > 0) {
+          setUsers(dbUsers.map(rowToUser));
+        } else {
+          // First run: seed the table with the built-in demo accounts
+          for (const u of INITIAL_USERS) {
+            await insertRecord(TABLES.USERS, userToRow(u));
+          }
         }
+      } catch (err) {
+        console.error("Failed to load users from Supabase:", err);
+      } finally {
+        if (!cancelled) setLoadingData(false);
       }
-    } catch (err) {
-      console.error("Failed to load users from Sheets:", err);
-    } finally {
-      setLoadingSheet(false);
-    }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   // ── Periodic background sync ──────────────────────────────
-  // The app doesn't have real-time push updates from Sheets, so we poll
-  // every 30s for new notifications/submissions/leave requests once the
-  // user is signed in. Merges by id — never clobbers local-only state.
+  // No real-time push from Supabase here (could add via Realtime later),
+  // so we poll every 30s for new notifications/submissions/leave requests.
+  // Merges by id — never clobbers local-only state.
   useEffect(() => {
-    if (!googleReady || !currentUser) return;
+    if (!currentUser) return;
 
     let cancelled = false;
 
     async function syncNow() {
       try {
-        const [sheetNotifs, sheetSubs, sheetLeave] = await Promise.all([
-          getAll<Record<string,string>>(SHEETS.NOTIFICATIONS).catch(() => []),
-          getAll<Record<string,string>>(SHEETS.SUBMISSIONS).catch(() => []),
-          getAll<Record<string,string>>(SHEETS.LEAVE_REQUESTS).catch(() => []),
+        const [dbNotifs, dbSubs, dbLeave] = await Promise.all([
+          getAll<Record<string,unknown>>(TABLES.NOTIFICATIONS).catch(() => []),
+          getAll<Record<string,unknown>>(TABLES.SUBMISSIONS).catch(() => []),
+          getAll<Record<string,unknown>>(TABLES.LEAVE_REQUESTS).catch(() => []),
         ]);
         if (cancelled) return;
 
-        if (sheetNotifs.length) {
+        if (dbNotifs.length) {
           setNotifications(prev => {
             const byId = new Map(prev.map(n => [n.id, n]));
-            sheetNotifs.forEach(row => {
-              const n = row as unknown as AppNotification;
-              if (!byId.has(n.id)) byId.set(n.id, { ...n, read: (row.read as unknown as string) === "true" });
+            dbNotifs.forEach(row => {
+              const n = rowToNotif(row);
+              if (!byId.has(n.id)) byId.set(n.id, n);
             });
             return Array.from(byId.values());
           });
         }
-        if (sheetSubs.length) {
+        if (dbSubs.length) {
           setSubmissions(prev => {
             const byId = new Map(prev.map(s => [s.id, s]));
-            sheetSubs.forEach(row => {
-              const s = row as unknown as Submission;
-              byId.set(s.id, s); // sheet is source of truth for status
-            });
+            dbSubs.forEach(row => byId.set(String(row.id), rowToSubmission(row)));
             return Array.from(byId.values());
           });
         }
-        if (sheetLeave.length) {
+        if (dbLeave.length) {
           setLeaveRequests(prev => {
             const byId = new Map(prev.map(r => [r.id, r]));
-            sheetLeave.forEach(row => {
-              const r = row as unknown as LeaveRequest;
-              byId.set(r.id, r);
-            });
+            dbLeave.forEach(row => byId.set(String(row.id), rowToLeaveRequest(row)));
             return Array.from(byId.values());
           });
         }
@@ -1633,7 +1629,7 @@ export default function App() {
     syncNow();
     const interval = setInterval(syncNow, 30_000);
     return () => { cancelled = true; clearInterval(interval); };
-  }, [googleReady, currentUser]);
+  }, [currentUser]);
   function handleSignIn(u: UserProfile){setCurrentUser(u);setPage("home");try{localStorage.setItem("litm_current_user",JSON.stringify(u));}catch{/* ignore */}}
   function handleSignOut(){setCurrentUser(null);setAuthPage("signin");try{localStorage.removeItem("litm_current_user");}catch{/* ignore */}}
 
@@ -1643,15 +1639,12 @@ export default function App() {
     setAllTasks(p=>({...p,[u.id]:[]}));
     setCurrentUser(u);
     setPage("home");
-    // 2. Persist to Sheets in the background
+    try{localStorage.setItem("litm_current_user",JSON.stringify(u));}catch{/* ignore */}
+    // 2. Persist to Supabase in the background
     try {
-      await insertRecord(SHEETS.USERS, Object.fromEntries(
-        ["id","username","lastName","firstName","middleName","suffix","nickname",
-         "designation","position","mobilePhone","email","password","isAdmin","profilePicture"]
-        .map((k,i) => [k, userToRow(u)[i]])
-      ));
+      await insertRecord(TABLES.USERS, userToRow(u));
     } catch (err) {
-      console.error("Failed to save new user to Sheets:", err);
+      console.error("Failed to save new user to Supabase:", err);
     }
   }
 
@@ -1660,18 +1653,11 @@ export default function App() {
     setUsers(p=>p.map(x=>x.id===u.id?u:x));
     setCurrentUser(u);
     try{localStorage.setItem("litm_current_user",JSON.stringify(u));}catch{/* ignore */}
-    // 2. Sync to Sheets
+    // 2. Sync to Supabase
     try {
-      await updateRecord(SHEETS.USERS, {
-        ...Object.fromEntries(
-          ["id","username","lastName","firstName","middleName","suffix","nickname",
-           "designation","position","mobilePhone","email","password","isAdmin","profilePicture"]
-          .map((k,i) => [k, userToRow(u)[i]])
-        ),
-        id: u.id,
-      } as Record<string,unknown> & { id: string });
+      await updateRecord(TABLES.USERS, { ...userToRow(u), id: u.id } as Record<string,unknown> & { id: string });
     } catch (err) {
-      console.error("Failed to update profile in Sheets:", err);
+      console.error("Failed to update profile in Supabase:", err);
     }
   }
 
@@ -1689,27 +1675,26 @@ export default function App() {
     setLeaveRequests(p=>[...p,req]);
     setNotifications(p=>[notif,...p]);
     try {
-      await insertRecord(SHEETS.LEAVE_REQUESTS, req as unknown as Record<string,unknown>);
-      await insertRecord(SHEETS.NOTIFICATIONS, notif as unknown as Record<string,unknown>);
+      await insertRecord(TABLES.LEAVE_REQUESTS, leaveToRow(req));
+      await insertRecord(TABLES.NOTIFICATIONS, notifToRow(notif));
     } catch(err){ console.error("Leave request sync failed:", err); }
   }
 
   async function handleEvidenceSubmit(dailyId:string, images:string[], submission:Submission, notif:AppNotification){
     if(!currentUser)return;
 
-    // Upload base64 images to Drive and swap in Drive URLs
+    // Upload base64 images to Supabase Storage and swap in public URLs
     let finalImages = images;
     try {
       const uploaded = await Promise.all(
         images.map((img, i) =>
           img.startsWith("data:")
-            ? uploadImageToDrive(img, `evidence-${dailyId}-${i}.jpg`)
-                .then(f => f.publicUrl ?? f.webViewLink)
+            ? uploadImageToStorage(img, `evidence-${dailyId}-${i}.jpg`).then(f => f.publicUrl)
             : Promise.resolve(img)
         )
       );
       finalImages = uploaded;
-    } catch(err){ console.error("Drive upload failed, keeping base64:", err); }
+    } catch(err){ console.error("Storage upload failed, keeping base64:", err); }
 
     const updatedSubmission = { ...submission, evidence: finalImages };
 
@@ -1718,8 +1703,8 @@ export default function App() {
     setNotifications(p=>[notif,...p]);
 
     try {
-      await insertRecord(SHEETS.SUBMISSIONS, updatedSubmission as unknown as Record<string,unknown>);
-      await insertRecord(SHEETS.NOTIFICATIONS, notif as unknown as Record<string,unknown>);
+      await insertRecord(TABLES.SUBMISSIONS, submissionToRow(updatedSubmission));
+      await insertRecord(TABLES.NOTIFICATIONS, notifToRow(notif));
     } catch(err){ console.error("Submission sync failed:", err); }
   }
 
@@ -1728,16 +1713,17 @@ export default function App() {
     setAllTasks(p=>({...p,[userId]:(p[userId]??[]).map(mt=>({...mt,weeklyTasks:mt.weeklyTasks.map(wt=>({...wt,dailyTasks:wt.dailyTasks.map(dt=>dt.id===dailyId?{...dt,status:"approved" as const}:dt)}))}))}));
     try {
       const sub = submissions.find(s=>s.id===subId);
-      if(sub) await updateRecord(SHEETS.SUBMISSIONS, { ...(sub as unknown as Record<string,unknown>), id:subId, status:"approved" } as Record<string,unknown> & { id: string });
+      if(sub) await updateRecord(TABLES.SUBMISSIONS, { ...submissionToRow({...sub,status:"approved"}), id:subId } as Record<string,unknown> & { id: string });
     } catch(err){ console.error("Approve submission sync failed:", err); }
   }
+
 
   async function handleReturnSubmission(subId:string, dailyId:string, userId:string, note:string){
     setSubmissions(p=>p.map(s=>s.id===subId?{...s,status:"returned" as const,adminNote:note}:s));
     setAllTasks(p=>({...p,[userId]:(p[userId]??[]).map(mt=>({...mt,weeklyTasks:mt.weeklyTasks.map(wt=>({...wt,dailyTasks:wt.dailyTasks.map(dt=>dt.id===dailyId?{...dt,status:"returned" as const,adminNote:note}:dt)}))}))}));
     try {
       const sub = submissions.find(s=>s.id===subId);
-      if(sub) await updateRecord(SHEETS.SUBMISSIONS, { ...(sub as unknown as Record<string,unknown>), id:subId, status:"returned", adminNote:note } as Record<string,unknown> & { id: string });
+      if(sub) await updateRecord(TABLES.SUBMISSIONS, { ...submissionToRow({...sub,status:"returned",adminNote:note}), id:subId } as Record<string,unknown> & { id: string });
     } catch(err){ console.error("Return submission sync failed:", err); }
   }
 
@@ -1745,7 +1731,7 @@ export default function App() {
     setLeaveRequests(p=>p.map(r=>r.id===reqId?{...r,status:"approved" as const}:r));
     try {
       const req = leaveRequests.find(r=>r.id===reqId);
-      if(req) await updateRecord(SHEETS.LEAVE_REQUESTS, { ...(req as unknown as Record<string,unknown>), id:reqId, status:"approved" } as Record<string,unknown> & { id: string });
+      if(req) await updateRecord(TABLES.LEAVE_REQUESTS, { ...leaveToRow({...req,status:"approved"}), id:reqId } as Record<string,unknown> & { id: string });
     } catch(err){ console.error("Approve leave sync failed:", err); }
   }
 
@@ -1753,7 +1739,7 @@ export default function App() {
     setLeaveRequests(p=>p.map(r=>r.id===reqId?{...r,status:"returned" as const,adminNote:note}:r));
     try {
       const req = leaveRequests.find(r=>r.id===reqId);
-      if(req) await updateRecord(SHEETS.LEAVE_REQUESTS, { ...(req as unknown as Record<string,unknown>), id:reqId, status:"returned", adminNote:note } as Record<string,unknown> & { id: string });
+      if(req) await updateRecord(TABLES.LEAVE_REQUESTS, { ...leaveToRow({...req,status:"returned",adminNote:note}), id:reqId } as Record<string,unknown> & { id: string });
     } catch(err){ console.error("Return leave sync failed:", err); }
   }
 
@@ -1761,22 +1747,18 @@ export default function App() {
     setNotifications(p=>p.map(n=>n.id===notifId?{...n,read:true}:n));
     try {
       const notif = notifications.find(n=>n.id===notifId);
-      if(notif) await updateRecord(SHEETS.NOTIFICATIONS, { ...(notif as unknown as Record<string,unknown>), id:notifId, read:"true" } as Record<string,unknown> & { id: string });
+      if(notif) await updateRecord(TABLES.NOTIFICATIONS, { ...notifToRow({...notif,read:true}), id:notifId } as Record<string,unknown> & { id: string });
     } catch(err){ console.error("Mark read sync failed:", err); }
   }
 
   // ── Render ────────────────────────────────────────────────
 
-  if (!googleReady) {
-    return <GoogleAuthGate onReady={handleGoogleReady} />;
-  }
-
-  if (loadingSheet) {
+  if (loadingData) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center space-y-3">
           <div className="w-10 h-10 border-4 border-accent border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-sm text-muted-foreground">Loading data from Google Sheets…</p>
+          <p className="text-sm text-muted-foreground">Loading…</p>
         </div>
       </div>
     );
@@ -1786,6 +1768,7 @@ export default function App() {
     if(authPage==="register") return <RegisterPage users={users} onRegister={handleRegister} onBack={()=>setAuthPage("signin")}/>;
     return <SignInPage users={users} onSignIn={handleSignIn} onGoRegister={()=>setAuthPage("register")}/>;
   }
+
 
   const myTasks = allTasks[currentUser.id]??[];
 
