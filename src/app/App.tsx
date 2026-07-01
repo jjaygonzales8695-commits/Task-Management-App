@@ -1582,7 +1582,7 @@ export default function App() {
   // ── Periodic background sync ──────────────────────────────
   // No real-time push from Supabase here (could add via Realtime later),
   // so we poll every 30s for new notifications/submissions/leave requests.
-  // Merges by id — never clobbers local-only state.
+  // Always overwrites from Supabase — it is the source of truth for status.
   useEffect(() => {
     if (!currentUser) return;
 
@@ -1597,29 +1597,50 @@ export default function App() {
         ]);
         if (cancelled) return;
 
+        // Always overwrite notifications from Supabase (source of truth)
         if (dbNotifs.length) {
-          setNotifications(prev => {
-            const byId = new Map(prev.map(n => [n.id, n]));
-            dbNotifs.forEach(row => {
-              const n = rowToNotif(row);
-              if (!byId.has(n.id)) byId.set(n.id, n);
-            });
-            return Array.from(byId.values());
-          });
+          setNotifications(dbNotifs.map(rowToNotif));
         }
+
+        // Always overwrite submissions from Supabase, then propagate
+        // status changes into allTasks so daily task cards stay in sync
         if (dbSubs.length) {
-          setSubmissions(prev => {
-            const byId = new Map(prev.map(s => [s.id, s]));
-            dbSubs.forEach(row => byId.set(String(row.id), rowToSubmission(row)));
-            return Array.from(byId.values());
+          const synced = dbSubs.map(rowToSubmission);
+          setSubmissions(synced);
+
+          // Build a map of dailyTaskId → latest submission status
+          const statusByDailyId = new Map<string, { status: Submission["status"]; adminNote?: string }>();
+          synced.forEach(s => {
+            const existing = statusByDailyId.get(s.dailyTaskId);
+            if (!existing || new Date(s.submittedAt) > new Date(existing as unknown as string)) {
+              statusByDailyId.set(s.dailyTaskId, { status: s.status, adminNote: s.adminNote });
+            }
+          });
+
+          // Apply those statuses into allTasks so Today's Tasks reflects approval
+          setAllTasks(prev => {
+            const updated = { ...prev };
+            for (const userId of Object.keys(updated)) {
+              updated[userId] = updated[userId].map(mt => ({
+                ...mt,
+                weeklyTasks: mt.weeklyTasks.map(wt => ({
+                  ...wt,
+                  dailyTasks: wt.dailyTasks.map(dt => {
+                    const s = statusByDailyId.get(dt.id);
+                    if (!s) return dt;
+                    // Only update if the DB status differs from local
+                    if (dt.status === s.status) return dt;
+                    return { ...dt, status: s.status as DailyStatus, adminNote: s.adminNote };
+                  }),
+                })),
+              }));
+            }
+            return updated;
           });
         }
+
         if (dbLeave.length) {
-          setLeaveRequests(prev => {
-            const byId = new Map(prev.map(r => [r.id, r]));
-            dbLeave.forEach(row => byId.set(String(row.id), rowToLeaveRequest(row)));
-            return Array.from(byId.values());
-          });
+          setLeaveRequests(dbLeave.map(rowToLeaveRequest));
         }
       } catch (err) {
         console.error("Background sync failed:", err);
