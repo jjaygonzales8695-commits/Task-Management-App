@@ -1554,24 +1554,78 @@ export default function App() {
 
   const unreadCount = notifications.filter(n=>!n.read).length;
 
-  // ── Load users from Supabase on mount ─────────────────────
+  // ── Load users + restore task statuses from Supabase on mount ─
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoadingData(true);
       try {
-        const dbUsers = await getAll<Record<string,unknown>>(TABLES.USERS);
+        const [dbUsers, dbSubs, dbNotifs, dbLeave] = await Promise.all([
+          getAll<Record<string,unknown>>(TABLES.USERS),
+          getAll<Record<string,unknown>>(TABLES.SUBMISSIONS).catch(() => []),
+          getAll<Record<string,unknown>>(TABLES.NOTIFICATIONS).catch(() => []),
+          getAll<Record<string,unknown>>(TABLES.LEAVE_REQUESTS).catch(() => []),
+        ]);
         if (cancelled) return;
+
+        // Users
         if (dbUsers.length > 0) {
           setUsers(dbUsers.map(rowToUser));
         } else {
-          // First run: seed the table with the built-in demo accounts
           for (const u of INITIAL_USERS) {
             await insertRecord(TABLES.USERS, userToRow(u));
           }
         }
+
+        // Restore submission + notification + leave state
+        if (dbSubs.length) {
+          const synced = dbSubs.map(rowToSubmission);
+          setSubmissions(synced);
+
+          // Build dailyTaskId → latest status map and apply into allTasks
+          const statusByDailyId = new Map<string, { status: Submission["status"]; adminNote?: string; submittedAt: string; images: string[] }>();
+          synced.forEach(s => {
+            const existing = statusByDailyId.get(s.dailyTaskId);
+            if (!existing || new Date(s.submittedAt) > new Date(existing.submittedAt)) {
+              statusByDailyId.set(s.dailyTaskId, {
+                status: s.status,
+                adminNote: s.adminNote,
+                submittedAt: s.submittedAt,
+                images: s.evidence,
+              });
+            }
+          });
+
+          setAllTasks(prev => {
+            const updated = { ...prev };
+            for (const userId of Object.keys(updated)) {
+              updated[userId] = updated[userId].map(mt => ({
+                ...mt,
+                weeklyTasks: mt.weeklyTasks.map(wt => ({
+                  ...wt,
+                  dailyTasks: wt.dailyTasks.map(dt => {
+                    const s = statusByDailyId.get(dt.id);
+                    if (!s) return dt;
+                    return {
+                      ...dt,
+                      status: s.status as DailyStatus,
+                      adminNote: s.adminNote,
+                      submittedAt: s.submittedAt,
+                      images: s.images,
+                    };
+                  }),
+                })),
+              }));
+            }
+            return updated;
+          });
+        }
+
+        if (dbNotifs.length) setNotifications(dbNotifs.map(rowToNotif));
+        if (dbLeave.length) setLeaveRequests(dbLeave.map(rowToLeaveRequest));
+
       } catch (err) {
-        console.error("Failed to load users from Supabase:", err);
+        console.error("Failed to load data from Supabase:", err);
       } finally {
         if (!cancelled) setLoadingData(false);
       }
