@@ -72,6 +72,13 @@ interface AppNotification {
 
 let _ctr = 0;
 function genId() { return `id-${Date.now()}-${++_ctr}`; }
+
+/** Deterministic ID for seed data — same inputs always produce the same ID.
+ *  This ensures daily task IDs survive page refreshes so Supabase submissions
+ *  can always find and update the correct task. */
+function seedId(...parts: (string|number)[]): string {
+  return `seed-${parts.join("-")}`;
+}
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const DAYS_LONG = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const DAYS_SHORT = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
@@ -128,7 +135,13 @@ function smartGenerateWeeklyTasks(monthly: MonthlyTask): WeeklyTask[] {
     for (let t = 0; t < 2; t++) {
       const phaseIdx = ((w - 1) * 2 + t) % config.phases.length;
       const phase = config.phases[phaseIdx];
-      const wt: WeeklyTask = { id: genId(), title: `${monthly.title} – ${phase.title}`, deliverables: [{ id: genId(), title: phase.deliverable, status: "pending" }], weekNumber: w, month: monthly.month, year: monthly.year, dailyTasks: [], status: "pending" };
+      const wtId = seedId(monthly.id, "wt", w, t);
+      const wt: WeeklyTask = {
+        id: wtId,
+        title: `${monthly.title} – ${phase.title}`,
+        deliverables: [{ id: seedId(wtId, "deliv", 0), title: phase.deliverable, status: "pending" }],
+        weekNumber: w, month: monthly.month, year: monthly.year, dailyTasks: [], status: "pending"
+      };
       wt.dailyTasks = smartGenerateDailyTasks(wt, config, ((w - 1) * 2 + t) * 10);
       tasks.push(wt);
     }
@@ -143,7 +156,10 @@ function smartGenerateDailyTasks(weekly: WeeklyTask, config: DomainConfig, poolO
     const dayIdx = Math.floor(i / 2);
     const date = workdays[dayIdx % Math.max(workdays.length, 1)] ?? `${weekly.year}-${String(weekly.month+1).padStart(2,"0")}-01`;
     const item = pool[(poolOffset + i) % pool.length];
-    tasks.push({ id: genId(), title: item.title, deliverable: item.deliverable, date, status: "pending", images: [] });
+    tasks.push({
+      id: seedId(weekly.id, "dt", poolOffset, i),
+      title: item.title, deliverable: item.deliverable, date, status: "pending", images: []
+    });
   }
   return tasks;
 }
@@ -162,13 +178,13 @@ const INITIAL_USERS: UserProfile[] = [
 ];
 function buildSeedTasks(): TasksData {
   const now = new Date(); const m = now.getMonth(); const y = now.getFullYear(); const t: TasksData = {};
-  const u1mt: MonthlyTask = { id: genId(), title: "Q2 IT Infrastructure Assessment", deliverables: [{ id: genId(), title: "Infrastructure Inventory Report", status: "done" }, { id: genId(), title: "Assessment Summary Presentation", status: "pending" }], month: m, year: y, status: "in-progress", weeklyTasks: [] };
+  const u1mt: MonthlyTask = { id: seedId("u-001","mt",0), title: "Q2 IT Infrastructure Assessment", deliverables: [{ id: seedId("u-001","mt",0,"d",0), title: "Infrastructure Inventory Report", status: "done" }, { id: seedId("u-001","mt",0,"d",1), title: "Assessment Summary Presentation", status: "pending" }], month: m, year: y, status: "in-progress", weeklyTasks: [] };
   u1mt.weeklyTasks = smartGenerateWeeklyTasks(u1mt);
-  t["u-001"] = [u1mt, { id: genId(), title: "Employee Digital Literacy Program", deliverables: [{ id: genId(), title: "Training Module Design", status: "done" }, { id: genId(), title: "Post-Training Report", status: "pending" }], month: m, year: y, status: "pending", weeklyTasks: [] }];
-  const u2mt: MonthlyTask = { id: genId(), title: "Network Security Audit", deliverables: [{ id: genId(), title: "Vulnerability Assessment Report", status: "pending" }, { id: genId(), title: "Remediation Plan", status: "pending" }], month: m, year: y, status: "in-progress", weeklyTasks: [] };
+  t["u-001"] = [u1mt, { id: seedId("u-001","mt",1), title: "Employee Digital Literacy Program", deliverables: [{ id: seedId("u-001","mt",1,"d",0), title: "Training Module Design", status: "done" }, { id: seedId("u-001","mt",1,"d",1), title: "Post-Training Report", status: "pending" }], month: m, year: y, status: "pending", weeklyTasks: [] }];
+  const u2mt: MonthlyTask = { id: seedId("u-002","mt",0), title: "Network Security Audit", deliverables: [{ id: seedId("u-002","mt",0,"d",0), title: "Vulnerability Assessment Report", status: "pending" }, { id: seedId("u-002","mt",0,"d",1), title: "Remediation Plan", status: "pending" }], month: m, year: y, status: "in-progress", weeklyTasks: [] };
   u2mt.weeklyTasks = smartGenerateWeeklyTasks(u2mt);
   t["u-002"] = [u2mt];
-  const u3mt: MonthlyTask = { id: genId(), title: "Database Optimization & Migration", deliverables: [{ id: genId(), title: "Migration Plan Document", status: "done" }, { id: genId(), title: "Post-Migration Performance Report", status: "pending" }], month: m, year: y, status: "in-progress", weeklyTasks: [] };
+  const u3mt: MonthlyTask = { id: seedId("u-003","mt",0), title: "Database Optimization & Migration", deliverables: [{ id: seedId("u-003","mt",0,"d",0), title: "Migration Plan Document", status: "done" }, { id: seedId("u-003","mt",0,"d",1), title: "Post-Migration Performance Report", status: "pending" }], month: m, year: y, status: "in-progress", weeklyTasks: [] };
   u3mt.weeklyTasks = smartGenerateWeeklyTasks(u3mt);
   t["u-003"] = [u3mt];
   t["u-admin"] = []; t["u-test"] = [];
