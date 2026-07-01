@@ -13,6 +13,20 @@ const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
+// ── Realtime subscription helper ────────────────────────────
+// Triggers `callback` whenever any row in `table` is inserted or updated.
+// Returns an unsubscribe function — call it on component unmount.
+export function subscribeToTable(
+  table: string,
+  callback: () => void,
+): () => void {
+  const channel = supabase
+    .channel(`realtime:${table}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table }, callback)
+    .subscribe()
+  return () => { supabase.removeChannel(channel) }
+}
+
 // ── Generic table helpers ───────────────────────────────────
 
 export async function getAll<T>(table: string): Promise<T[]> {

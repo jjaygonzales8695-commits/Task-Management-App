@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import {
-  getAll, insertRecord, updateRecord, TABLES, uploadImageToStorage,
+  getAll, insertRecord, updateRecord, TABLES, uploadImageToStorage, subscribeToTable,
 } from "@/lib/supabase";
 import {
   Home, User, CheckSquare, Award, LogOut, ChevronLeft, ChevronRight,
@@ -1648,8 +1648,21 @@ export default function App() {
     }
 
     syncNow();
-    const interval = setInterval(syncNow, 30_000);
-    return () => { cancelled = true; clearInterval(interval); };
+    const interval = setInterval(syncNow, 5_000);
+
+    // Realtime push — triggers syncNow instantly on any DB change
+    // instead of waiting for the next poll tick.
+    const unsubNotifs = subscribeToTable(TABLES.NOTIFICATIONS, syncNow);
+    const unsubSubs = subscribeToTable(TABLES.SUBMISSIONS, syncNow);
+    const unsubLeave = subscribeToTable(TABLES.LEAVE_REQUESTS, syncNow);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      unsubNotifs();
+      unsubSubs();
+      unsubLeave();
+    };
   }, [currentUser]);
   function handleSignIn(u: UserProfile){setCurrentUser(u);setPage("home");try{localStorage.setItem("litm_current_user",JSON.stringify(u));}catch{/* ignore */}}
   function handleSignOut(){setCurrentUser(null);setAuthPage("signin");try{localStorage.removeItem("litm_current_user");}catch{/* ignore */}}
