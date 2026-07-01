@@ -34,7 +34,8 @@ export async function updateRecord<T extends Record<string, unknown> & { id: str
   record: T,
 ): Promise<void> {
   const { id, ...rest } = record
-  const { error } = await supabase.from(table).update(rest).eq('id', id)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await supabase.from(table).update(rest as any).eq('id', id)
   if (error) throw new Error(`Supabase update(${table}) failed: ${error.message}`)
 }
 
