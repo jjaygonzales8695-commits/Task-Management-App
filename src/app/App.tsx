@@ -96,6 +96,17 @@ function formatDateWithDay(iso: string) { const d = new Date(iso + "T00:00:00");
 function formatTimestamp(iso: string) { const d = new Date(iso); return d.toLocaleString("en-PH",{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}); }
 function getFullName(u: UserProfile) { const mi = u.middleName ? ` ${u.middleName.charAt(0)}.` : ""; const sfx = u.suffix ? `, ${u.suffix}` : ""; return `${u.firstName}${mi} ${u.lastName}${sfx}`; }
 function cleanTitle(t: string) { return t.replace(/^\[(AM|PM)\]\s*/i, ""); }
+// A Submission's review status ("pending" = awaiting admin review, "approved",
+// "returned") is a DIFFERENT vocabulary from a DailyTask's status ("pending" =
+// not yet submitted, "submitted" = awaiting admin review, "approved", "returned",
+// "finished"). A submission with status "pending" means the daily task is
+// "submitted" (Under Review) — it must NOT be copied over as DailyStatus
+// "pending", or a freshly-submitted task will flip back to Pending on the
+// next sync. "approved" and "returned" happen to share the same word in both
+// vocabularies, so only "pending" needs remapping.
+function submissionStatusToDailyStatus(s: Submission["status"]): DailyStatus {
+  return s === "pending" ? "submitted" : s;
+}
 function getWeekDates(year: number, month: number, weekNum: number): string[] {
   const firstDay = getFirstDay(year, month); const daysInMonth = getDaysInMonth(year, month);
   const dates: string[] = [];
@@ -1886,7 +1897,7 @@ export default function App() {
                     if (!s) return dt;
                     return {
                       ...dt,
-                      status: s.status as DailyStatus,
+                      status: submissionStatusToDailyStatus(s.status),
                       adminNote: s.adminNote,
                       submittedAt: s.submittedAt,
                       images: s.images,
@@ -1941,11 +1952,11 @@ export default function App() {
           setSubmissions(synced);
 
           // Build a map of dailyTaskId → latest submission status
-          const statusByDailyId = new Map<string, { status: Submission["status"]; adminNote?: string }>();
+          const statusByDailyId = new Map<string, { status: Submission["status"]; adminNote?: string; submittedAt: string }>();
           synced.forEach(s => {
             const existing = statusByDailyId.get(s.dailyTaskId);
-            if (!existing || new Date(s.submittedAt) > new Date(existing as unknown as string)) {
-              statusByDailyId.set(s.dailyTaskId, { status: s.status, adminNote: s.adminNote });
+            if (!existing || new Date(s.submittedAt) > new Date(existing.submittedAt)) {
+              statusByDailyId.set(s.dailyTaskId, { status: s.status, adminNote: s.adminNote, submittedAt: s.submittedAt });
             }
           });
 
@@ -1960,9 +1971,10 @@ export default function App() {
                   dailyTasks: wt.dailyTasks.map(dt => {
                     const s = statusByDailyId.get(dt.id);
                     if (!s) return dt;
+                    const mapped = submissionStatusToDailyStatus(s.status);
                     // Only update if the DB status differs from local
-                    if (dt.status === s.status) return dt;
-                    return { ...dt, status: s.status as DailyStatus, adminNote: s.adminNote };
+                    if (dt.status === mapped) return dt;
+                    return { ...dt, status: mapped, adminNote: s.adminNote };
                   }),
                 })),
               }));
