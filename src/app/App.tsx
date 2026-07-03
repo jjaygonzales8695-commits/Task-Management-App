@@ -4,7 +4,7 @@ import {
 } from "@/lib/supabase";
 import {
   generateAccomplishmentReport, generateAccomplishmentHistory, formatDateRange,
-  type AccomplishmentReportRow, type HistoryRow,
+  type AccomplishmentItem, type HistoryRow,
 } from "@/lib/docGenerator";
 import {
   Home, User, CheckSquare, Award, LogOut, ChevronLeft, ChevronRight,
@@ -26,7 +26,7 @@ type DailyStatus = "pending" | "submitted" | "approved" | "returned" | "finished
 interface UserProfile {
   id: string; username: string; lastName: string; firstName: string;
   middleName: string; suffix: string; nickname: string; designation: string;
-  position: string; mobilePhone: string; email: string; password: string;
+  position: string; natureOfWork: string; mobilePhone: string; email: string; password: string;
   isAdmin: boolean; profilePicture: string;
 }
 interface Deliverable { id: string; title: string; status: "pending" | "done"; }
@@ -174,11 +174,11 @@ function smartGenerateDailyTasks(weekly: WeeklyTask, config: DomainConfig, poolO
 
 const TODAY = todayISO();
 const INITIAL_USERS: UserProfile[] = [
-  { id: "u-admin", username: "admin", lastName: "Reyes", firstName: "Maria", middleName: "Santos", suffix: "", nickname: "Mari", designation: "Division Head", position: "Chief Information Officer", mobilePhone: "09171234567", email: "admin@litm.gov.ph", password: "admin123", isAdmin: true, profilePicture: "" },
-  { id: "u-001", username: "jcruz", lastName: "Cruz", firstName: "Jose", middleName: "Manuel", suffix: "Jr.", nickname: "Jojo", designation: "IT Specialist II", position: "Systems Analyst", mobilePhone: "09281234567", email: "jose.cruz@litm.gov.ph", password: "staff123", isAdmin: false, profilePicture: "" },
-  { id: "u-002", username: "adelacruz", lastName: "Dela Cruz", firstName: "Ana", middleName: "Bautista", suffix: "", nickname: "Annie", designation: "IT Specialist I", position: "Network Administrator", mobilePhone: "09301234567", email: "ana.delacruz@litm.gov.ph", password: "staff123", isAdmin: false, profilePicture: "" },
-  { id: "u-003", username: "msantos", lastName: "Santos", firstName: "Mark", middleName: "David", suffix: "", nickname: "Marky", designation: "IT Officer I", position: "Database Administrator", mobilePhone: "09191234567", email: "mark.santos@litm.gov.ph", password: "staff123", isAdmin: false, profilePicture: "" },
-  { id: "u-test", username: "testuser", lastName: "Dela Vega", firstName: "Juan", middleName: "Sta. Maria", suffix: "", nickname: "Juan", designation: "IT Assistant", position: "IT Support Specialist", mobilePhone: "09991234567", email: "test.user@litm.gov.ph", password: "test123", isAdmin: false, profilePicture: "" },
+  { id: "u-admin", username: "admin", lastName: "Reyes", firstName: "Maria", middleName: "Santos", suffix: "", nickname: "Mari", designation: "Division Head", position: "Chief Information Officer", natureOfWork: "Information Systems Management", mobilePhone: "09171234567", email: "admin@litm.gov.ph", password: "admin123", isAdmin: true, profilePicture: "" },
+  { id: "u-001", username: "jcruz", lastName: "Cruz", firstName: "Jose", middleName: "Manuel", suffix: "Jr.", nickname: "Jojo", designation: "IT Specialist II", position: "Systems Analyst", natureOfWork: "Systems Development and Analysis", mobilePhone: "09281234567", email: "jose.cruz@litm.gov.ph", password: "staff123", isAdmin: false, profilePicture: "" },
+  { id: "u-002", username: "adelacruz", lastName: "Dela Cruz", firstName: "Ana", middleName: "Bautista", suffix: "", nickname: "Annie", designation: "IT Specialist I", position: "Network Administrator", natureOfWork: "Network and Infrastructure Support", mobilePhone: "09301234567", email: "ana.delacruz@litm.gov.ph", password: "staff123", isAdmin: false, profilePicture: "" },
+  { id: "u-003", username: "msantos", lastName: "Santos", firstName: "Mark", middleName: "David", suffix: "", nickname: "Marky", designation: "IT Officer I", position: "Database Administrator", natureOfWork: "Database Management", mobilePhone: "09191234567", email: "mark.santos@litm.gov.ph", password: "staff123", isAdmin: false, profilePicture: "" },
+  { id: "u-test", username: "testuser", lastName: "Dela Vega", firstName: "Juan", middleName: "Sta. Maria", suffix: "", nickname: "Juan", designation: "IT Assistant", position: "IT Support Specialist", natureOfWork: "Technical Support Services", mobilePhone: "09991234567", email: "test.user@litm.gov.ph", password: "test123", isAdmin: false, profilePicture: "" },
 ];
 function buildSeedTasks(): TasksData {
   const now = new Date(); const m = now.getMonth(); const y = now.getFullYear(); const t: TasksData = {};
@@ -286,13 +286,13 @@ function SignInPage({ users, onSignIn, onGoRegister }: { users: UserProfile[]; o
 // REGISTER PAGE
 // ─────────────────────────────────────────────────────────────
 function RegisterPage({ users, onRegister, onBack }: { users: UserProfile[]; onRegister: (u: UserProfile) => void; onBack: () => void }) {
-  const [lastName, setLastName] = useState(""); const [firstName, setFirstName] = useState(""); const [middleName, setMiddleName] = useState(""); const [suffix, setSuffix] = useState(""); const [nickname, setNickname] = useState(""); const [username, setUsername] = useState(""); const [designation, setDesignation] = useState(""); const [position, setPosition] = useState(""); const [mobilePhone, setMobilePhone] = useState(""); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [confirmPassword, setConfirmPassword] = useState(""); const [error, setError] = useState("");
+  const [lastName, setLastName] = useState(""); const [firstName, setFirstName] = useState(""); const [middleName, setMiddleName] = useState(""); const [suffix, setSuffix] = useState(""); const [nickname, setNickname] = useState(""); const [username, setUsername] = useState(""); const [designation, setDesignation] = useState(""); const [position, setPosition] = useState(""); const [natureOfWork, setNatureOfWork] = useState(""); const [mobilePhone, setMobilePhone] = useState(""); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [confirmPassword, setConfirmPassword] = useState(""); const [error, setError] = useState("");
   function handleRegister() {
-    if (!lastName||!firstName||!middleName||!nickname||!username||!designation||!position||!mobilePhone||!email||!password) { setError("Please fill in all required fields."); return; }
+    if (!lastName||!firstName||!middleName||!nickname||!username||!designation||!position||!natureOfWork||!mobilePhone||!email||!password) { setError("Please fill in all required fields."); return; }
     if (users.some(u => u.username === username)) { setError("Username already taken."); return; }
     if (password !== confirmPassword) { setError("Passwords do not match."); return; }
     if (password.length < 6) { setError("Password must be at least 6 characters."); return; }
-    setError(""); onRegister({ id:genId(),username,lastName,firstName,middleName,suffix,nickname,designation,position,mobilePhone,email,password,isAdmin:false,profilePicture:"" });
+    setError(""); onRegister({ id:genId(),username,lastName,firstName,middleName,suffix,nickname,designation,position,natureOfWork,mobilePhone,email,password,isAdmin:false,profilePicture:"" });
   }
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4 py-8">
@@ -313,6 +313,7 @@ function RegisterPage({ users, onRegister, onBack }: { users: UserProfile[]; onR
             <FormField label="Username" value={username} onChange={setUsername} placeholder="e.g., jdelacruz" autoComplete="username" />
             <FormField label="Designation" value={designation} onChange={setDesignation} />
             <FormField label="Position" value={position} onChange={setPosition} />
+            <FormField label="Nature of Work" value={natureOfWork} onChange={setNatureOfWork} />
             <FormField label="Mobile Phone Number" value={mobilePhone} onChange={setMobilePhone} type="tel" autoComplete="tel" />
             <FormField label="Email Address" value={email} onChange={setEmail} type="email" autoComplete="email" />
             <FormField label="Password" value={password} onChange={setPassword} type="password" autoComplete="new-password" />
@@ -787,6 +788,7 @@ function ProfilePage({ user, onUpdate }: { user: UserProfile; onUpdate: (u: User
           <ProfileInfoField label="Username" value={form.username} editing={editing} onChange={v=>setField("username",v)}/>
           <ProfileInfoField label="Designation" value={form.designation} editing={editing} onChange={v=>setField("designation",v)}/>
           <ProfileInfoField label="Position" value={form.position} editing={editing} onChange={v=>setField("position",v)}/>
+          <ProfileInfoField label="Nature of Work" value={form.natureOfWork} editing={editing} onChange={v=>setField("natureOfWork",v)}/>
           <ProfileInfoField label="Mobile Number" value={form.mobilePhone} editing={editing} onChange={v=>setField("mobilePhone",v)}/>
           <div className="col-span-2"><ProfileInfoField label="Email Address" value={form.email} editing={editing} onChange={v=>setField("email",v)}/></div>
         </div>
@@ -1188,19 +1190,19 @@ function ReportModal({ currentUser, approvedDaily, month, year, daysInMonth, onC
     setGenerating(true);
     try {
       const half = selected === "first-half" ? "first" : selected === "second-half" ? "second" : "full";
-      const rows: AccomplishmentReportRow[] = filteredDaily
+      const items: AccomplishmentItem[] = filteredDaily
         .filter(dt => selectedIds.has(dt.id))
         .map(dt => ({
-          name: getFullName(currentUser),
-          natureOfWork: cleanTitle(dt.title),
-          accomplishment: `${dt.deliverable} (${formatDisplay(dt.date)})`,
+          heading: cleanTitle(dt.title),
+          description: `${dt.deliverable} (${formatDisplay(dt.date)})`,
         }));
       await generateAccomplishmentReport({
         staffName: getFullName(currentUser),
-        staffItem: currentUser.designation,
-        staffPosition: currentUser.position,
+        natureOfWork: currentUser.natureOfWork,
+        staffItem: currentUser.position,
+        staffPosition: currentUser.natureOfWork,
         dateRange: formatDateRange(month, year, half),
-        rows,
+        items,
       });
       onClose();
     } catch(err) {
@@ -1726,7 +1728,7 @@ function userToRow(u: UserProfile): Record<string, unknown> {
   return {
     id: u.id, username: u.username, last_name: u.lastName, first_name: u.firstName,
     middle_name: u.middleName, suffix: u.suffix, nickname: u.nickname,
-    designation: u.designation, position: u.position, mobile_phone: u.mobilePhone,
+    designation: u.designation, position: u.position, nature_of_work: u.natureOfWork, mobile_phone: u.mobilePhone,
     email: u.email, password: u.password, is_admin: u.isAdmin,
     profile_picture: u.profilePicture,
   };
@@ -1739,6 +1741,7 @@ function rowToUser(r: Record<string, unknown>): UserProfile {
     firstName: String(r.first_name), middleName: String(r.middle_name),
     suffix: String(r.suffix ?? ""), nickname: String(r.nickname),
     designation: String(r.designation), position: String(r.position),
+    natureOfWork: String(r.nature_of_work ?? ""),
     mobilePhone: String(r.mobile_phone), email: String(r.email), password: String(r.password),
     isAdmin: Boolean(r.is_admin), profilePicture: String(r.profile_picture ?? ""),
   };

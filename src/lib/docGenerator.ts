@@ -70,7 +70,7 @@ function tabs(count: number): TextRun[] {
 
 function cell(
   children: Paragraph[],
-  opts: { width?: number; vAlign?: typeof VerticalAlign.CENTER } = {},
+  opts: { width?: number; vAlign?: (typeof VerticalAlign)[keyof typeof VerticalAlign] } = {},
 ): TableCell {
   return new TableCell({
     children,
@@ -105,23 +105,26 @@ function emptyParagraph(): Paragraph {
 // ACCOMPLISHMENT REPORT
 // [Month date-range, year]  (bold, underlined)
 // Table: NAME | NATURE OF WORK | ACCOMPLISHMENT REPORT
+//   — a single row per staff member. The ACCOMPLISHMENT REPORT cell holds a
+//     numbered list; each numbered item has a bold heading followed by a
+//     plain-text description, all within the same cell (no extra rows).
 // Prepared by: ................................ Approved by:
 // [FULL NAME]                                    RICHEL PETALCURIN-DAHAY
-// [Item/Designation]                             Acting City Education and Development Officer
-// [Position]
+// [Position]                                     Acting City Education and Development Officer
+// [Nature of Work]
 
-export interface AccomplishmentReportRow {
-  name: string
-  natureOfWork: string      // task title / deliverable
-  accomplishment: string    // parent monthly task title
+export interface AccomplishmentItem {
+  heading: string        // e.g. "Presented the first Prototype of the Scholars' Bridging Application"
+  description: string    // e.g. "Presented the initial working prototype ... continuous technical improvement."
 }
 
 export interface AccomplishmentReportOptions {
   staffName: string
-  staffItem: string         // designation (e.g. "IT Specialist II") — printed on the "Item" line
-  staffPosition?: string    // position/job title (e.g. "Systems Analyst") — printed on the "Position" line
+  natureOfWork: string      // e.g. "Learning and Instructional Support" — printed in the NATURE OF WORK column
+  staffItem: string         // printed on the line under the staff name (now: Position)
+  staffPosition?: string    // printed on the line below that (now: Nature of Work)
   dateRange: string         // e.g. "July 1-15, 2025"
-  rows: AccomplishmentReportRow[]
+  items: AccomplishmentItem[]
 }
 
 export async function generateAccomplishmentReport(opts: AccomplishmentReportOptions): Promise<void> {
@@ -131,7 +134,19 @@ export async function generateAccomplishmentReport(opts: AccomplishmentReportOpt
   const COL_ACCOMP  = 9015
   const TABLE_WIDTH = COL_NAME + COL_NATURE + COL_ACCOMP // 15315
 
-  const dataRows = opts.rows.length > 0 ? opts.rows : [{ name: '', natureOfWork: '', accomplishment: '' }]
+  const items = opts.items.length > 0 ? opts.items : [{ heading: '', description: '' }]
+
+  // Build the numbered list inside a single ACCOMPLISHMENT REPORT cell:
+  // "1. Heading" (bold) followed by the description (normal), for each item.
+  const accomplishmentParagraphs: Paragraph[] = items.flatMap((item, i) => [
+    new Paragraph({
+      children: [bold(`${i + 1}. ${item.heading}`, 24)],
+      spacing: { before: i === 0 ? 0 : 160 },
+    }),
+    new Paragraph({
+      children: [normal(item.description, 24)],
+    }),
+  ])
 
   const tableRows: TableRow[] = [
     // Header row
@@ -143,25 +158,20 @@ export async function generateAccomplishmentReport(opts: AccomplishmentReportOpt
         headerCell('ACCOMPLISHMENT REPORT', COL_ACCOMP),
       ],
     }),
-    // Data rows — NAME column filled only on the first row (as in the template)
-    ...dataRows.map(
-      (row, i) => new TableRow({
-        children: [
-          cell(
-            [new Paragraph({ children: [normal(i === 0 ? row.name : '', 24)] })],
-            { width: COL_NAME },
-          ),
-          cell(
-            [new Paragraph({ children: [normal(row.natureOfWork, 24)] })],
-            { width: COL_NATURE },
-          ),
-          cell(
-            [new Paragraph({ children: [normal(row.accomplishment, 24)] })],
-            { width: COL_ACCOMP },
-          ),
-        ],
-      })
-    ),
+    // Single data row — no per-accomplishment rows are added
+    new TableRow({
+      children: [
+        cell(
+          [new Paragraph({ children: [normal(opts.staffName, 24)] })],
+          { width: COL_NAME },
+        ),
+        cell(
+          [new Paragraph({ children: [normal(opts.natureOfWork, 24)] })],
+          { width: COL_NATURE },
+        ),
+        cell(accomplishmentParagraphs, { width: COL_ACCOMP, vAlign: VerticalAlign.TOP }),
+      ],
+    }),
   ]
 
   const header = await buildLetterheadHeader()
