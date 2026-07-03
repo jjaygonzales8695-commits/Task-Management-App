@@ -3,6 +3,10 @@ import {
   getAll, insertRecord, updateRecord, TABLES, uploadImageToStorage, subscribeToTable,
 } from "@/lib/supabase";
 import {
+  generateAccomplishmentReport, generateAccomplishmentHistory, formatDateRange,
+  type AccomplishmentReportRow, type HistoryRow,
+} from "@/lib/docGenerator";
+import {
   Home, User, CheckSquare, Award, LogOut, ChevronLeft, ChevronRight,
   Plus, Edit2, Check, Eye, Camera, Upload, FileText, ChevronDown, ChevronUp,
   X, Users, Trash2, Clock, CheckCircle2, Circle, AlertCircle,
@@ -1119,7 +1123,7 @@ function MyTasksPage({ tasks, onUpdateTasks }: { tasks: MonthlyTask[]; onUpdateT
 // ─────────────────────────────────────────────────────────────
 // MY ACCOMPLISHMENTS — selectable report generation
 // ─────────────────────────────────────────────────────────────
-function MyAccomplishmentsPage({ tasks }: { tasks: MonthlyTask[] }) {
+function MyAccomplishmentsPage({ tasks, currentUser }: { tasks: MonthlyTask[]; currentUser: UserProfile }) {
   const now = new Date();
   const [showReport, setShowReport] = useState(false);
   const [activeTab, setActiveTab] = useState<"monthly"|"weekly"|"daily">("monthly");
@@ -1150,48 +1154,70 @@ function MyAccomplishmentsPage({ tasks }: { tasks: MonthlyTask[] }) {
           {activeTab==="daily"&&<div className="space-y-2">{approvedDaily.length===0?<div className="py-8 text-center text-muted-foreground text-sm">No approved daily tasks yet. Submit evidence and wait for admin approval.</div>:approvedDaily.map(dt=><div key={dt.id} className="p-3.5 rounded-xl border border-green-200 bg-green-50 flex items-start gap-3"><CheckCircle2 size={16} className="text-green-600 flex-shrink-0 mt-0.5"/><div className="flex-1 min-w-0"><p className="text-sm font-semibold text-foreground truncate">{cleanTitle(dt.title)}</p><p className="text-xs text-muted-foreground"><span className="font-medium">Deliverable:</span> {dt.deliverable}</p><p className="text-xs text-muted-foreground">{formatDisplay(dt.date)}</p></div><StatusBadge status={dt.status}/></div>)}</div>}
         </div>
       </div>
-      {showReport&&<Modal title="Generate Accomplishment Report" onClose={()=>setShowReport(false)} wide><ReportModal approvedDaily={approvedDaily} finishedWeekly={finishedWeekly} finishedMonthly={finishedMonthly} month={now.getMonth()} year={now.getFullYear()} daysInMonth={daysInMonth} onClose={()=>setShowReport(false)}/></Modal>}
+      {showReport&&<Modal title="Generate Accomplishment Report" onClose={()=>setShowReport(false)} wide><ReportModal currentUser={currentUser} approvedDaily={approvedDaily} month={now.getMonth()} year={now.getFullYear()} daysInMonth={daysInMonth} onClose={()=>setShowReport(false)}/></Modal>}
     </div>
   );
 }
 
-function ReportModal({ approvedDaily, finishedWeekly, finishedMonthly, month, year, daysInMonth, onClose }: { approvedDaily: DailyTask[]; finishedWeekly: WeeklyTask[]; finishedMonthly: MonthlyTask[]; month: number; year: number; daysInMonth: number; onClose: () => void }) {
+function ReportModal({ currentUser, approvedDaily, month, year, daysInMonth, onClose }: {
+  currentUser: UserProfile; approvedDaily: DailyTask[];
+  month: number; year: number; daysInMonth: number; onClose: () => void
+}) {
   const [selected, setSelected] = useState<"first-half"|"second-half"|"full">("full");
-  const [preview, setPreview] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [generating, setGenerating] = useState(false);
+
   const m = String(month+1).padStart(2,"0");
-  const ranges = { "first-half":{start:`${year}-${m}-01`,end:`${year}-${m}-15`}, "second-half":{start:`${year}-${m}-16`,end:`${year}-${m}-${String(daysInMonth).padStart(2,"0")}`}, "full":{start:`${year}-${m}-01`,end:`${year}-${m}-${String(daysInMonth).padStart(2,"0")}`} };
-  const labels = { "first-half":`1–15 ${MONTHS[month]} ${year}`, "second-half":`16–${daysInMonth} ${MONTHS[month]} ${year}`, "full":`1–${daysInMonth} ${MONTHS[month]} ${year}` };
+  const ranges = {
+    "first-half":  { start:`${year}-${m}-01`, end:`${year}-${m}-15` },
+    "second-half": { start:`${year}-${m}-16`, end:`${year}-${m}-${String(daysInMonth).padStart(2,"0")}` },
+    "full":        { start:`${year}-${m}-01`, end:`${year}-${m}-${String(daysInMonth).padStart(2,"0")}` },
+  };
+  const labels = {
+    "first-half":  `1–15 ${MONTHS[month]} ${year}`,
+    "second-half": `16–${daysInMonth} ${MONTHS[month]} ${year}`,
+    "full":        `1–${daysInMonth} ${MONTHS[month]} ${year}`,
+  };
   const filteredDaily = approvedDaily.filter(dt=>dt.date>=ranges[selected].start&&dt.date<=ranges[selected].end);
-  const reportTasks = filteredDaily.filter(dt=>selectedIds.has(dt.id));
 
   function toggleId(id:string){setSelectedIds(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;});}
   function selectAll(){setSelectedIds(new Set(filteredDaily.map(d=>d.id)));}
   function clearAll(){setSelectedIds(new Set());}
 
-  if(preview) return(
-    <div className="space-y-5">
-      <div className="bg-muted/30 rounded-xl p-5 border border-border">
-        <div className="text-center border-b border-border pb-4 mb-4"><p className="text-xs uppercase tracking-widest text-muted-foreground font-semibold">Learning Innovation and Technology Management</p><h3 className="text-base font-bold text-foreground mt-2">ACCOMPLISHMENT REPORT</h3><p className="text-sm text-muted-foreground">Period: {labels[selected]}</p></div>
-        {reportTasks.length===0?<p className="text-sm text-muted-foreground text-center py-4">No tasks selected for this report.</p>:(
-          <div className="space-y-4">
-            <div><p className="text-xs font-bold uppercase tracking-wide border-b border-border pb-1 mb-2">I. Daily Tasks Accomplished</p>{reportTasks.map((dt,i)=><div key={dt.id} className="flex items-start gap-2.5 text-sm py-1"><span className="text-muted-foreground font-mono text-xs mt-0.5 w-5 flex-shrink-0">{i+1}.</span><div><p className="font-medium text-foreground">{cleanTitle(dt.title)}</p><p className="text-xs text-muted-foreground">Output: {dt.deliverable} · {formatDisplay(dt.date)}</p></div></div>)}</div>
-            {finishedWeekly.length>0&&<div><p className="text-xs font-bold uppercase tracking-wide border-b border-border pb-1 mb-2">II. Weekly Milestones</p>{finishedWeekly.map((wt,i)=><p key={wt.id} className="text-sm py-0.5"><span className="font-mono text-xs text-muted-foreground mr-2">{i+1}.</span>{cleanTitle(wt.title)}</p>)}</div>}
-          </div>
-        )}
-      </div>
-      <div className="flex gap-3"><button onClick={()=>setPreview(false)} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-all">Back</button><button onClick={()=>window.print()} className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all flex items-center justify-center gap-2"><Printer size={14}/> Print Report</button></div>
-    </div>
-  );
+  async function handleGenerate() {
+    setGenerating(true);
+    try {
+      const half = selected === "first-half" ? "first" : selected === "second-half" ? "second" : "full";
+      const rows: AccomplishmentReportRow[] = filteredDaily
+        .filter(dt => selectedIds.has(dt.id))
+        .map(dt => ({
+          name: getFullName(currentUser),
+          natureOfWork: cleanTitle(dt.title),
+          accomplishment: `${dt.deliverable} (${formatDisplay(dt.date)})`,
+        }));
+      await generateAccomplishmentReport({
+        staffName: getFullName(currentUser),
+        staffItem: currentUser.designation || currentUser.position,
+        dateRange: formatDateRange(month, year, half),
+        rows,
+      });
+      onClose();
+    } catch(err) {
+      console.error("Failed to generate report:", err);
+      alert("Failed to generate report. Please try again.");
+    } finally {
+      setGenerating(false);
+    }
+  }
 
   return(
     <div className="space-y-5">
-      <p className="text-sm text-muted-foreground">Select the reporting period:</p>
+      <p className="text-sm text-muted-foreground">Select the reporting period then choose which accomplishments to include. A Word (.docx) file will be downloaded.</p>
       <div className="space-y-2">
         {(["first-half","second-half","full"] as const).map(opt=>(
           <button key={opt} onClick={()=>{setSelected(opt);setSelectedIds(new Set());}} className={`w-full flex items-center gap-4 p-3.5 rounded-xl border-2 text-left transition-all ${selected===opt?"border-accent bg-secondary":"border-border hover:border-accent/40"}`}>
             <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${selected===opt?"border-accent":"border-muted-foreground"}`}>{selected===opt&&<div className="w-2 h-2 rounded-full bg-accent"/>}</div>
-            <div><p className="text-sm font-semibold text-foreground">{labels[opt]}</p><p className="text-xs text-muted-foreground">{filteredDaily.length} approved tasks in this period</p></div>
+            <div><p className="text-sm font-semibold text-foreground">{labels[opt]}</p><p className="text-xs text-muted-foreground">{approvedDaily.filter(dt=>dt.date>=ranges[opt].start&&dt.date<=ranges[opt].end).length} approved tasks in this period</p></div>
           </button>
         ))}
       </div>
@@ -1214,7 +1240,14 @@ function ReportModal({ approvedDaily, finishedWeekly, finishedMonthly, month, ye
         </div>
       )}
 
-      <div className="flex gap-3"><button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-all">Cancel</button><button onClick={()=>setPreview(true)} disabled={selectedIds.size===0} className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${selectedIds.size>0?"bg-accent text-accent-foreground hover:bg-accent/80":"bg-muted text-muted-foreground cursor-not-allowed"}`}><FileText size={14} className="inline mr-1.5"/> Generate ({selectedIds.size})</button></div>
+      <div className="flex gap-3">
+        <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-all">Cancel</button>
+        <button onClick={handleGenerate} disabled={selectedIds.size===0||generating}
+          className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 ${selectedIds.size>0&&!generating?"bg-accent text-accent-foreground hover:bg-accent/80":"bg-muted text-muted-foreground cursor-not-allowed"}`}>
+          <FileText size={14}/>
+          {generating ? "Generating…" : `Download Word (${selectedIds.size})`}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1475,43 +1508,26 @@ function HistoryPage({ submissions, allUsers }: { submissions: Submission[]; all
     byUser[s.userId].push(s);
   });
 
-  function downloadPDF() {
-    const lines: string[] = [];
-    lines.push("LEARNING INNOVATION AND TECHNOLOGY MANAGEMENT");
-    lines.push("DELIVERABLE HISTORY REPORT");
-    lines.push(`Generated: ${new Date().toLocaleString("en-PH")}`);
-    lines.push("=".repeat(60));
-    lines.push("");
-
+  async function downloadPDF() {
     const usersToShow = selectedUser === "all"
       ? Object.keys(byUser)
       : [selectedUser];
 
-    usersToShow.forEach(uid => {
+    for (const uid of usersToShow) {
       const u = allUsers.find(x => x.id === uid);
       const subs = byUser[uid] ?? [];
-      if (!subs.length) return;
-      lines.push(`STAFF: ${u ? getFullName(u) : uid} — ${u?.position ?? ""}`);
-      lines.push("-".repeat(50));
-      subs.forEach((s, i) => {
-        lines.push(`${i+1}. [${s.status.toUpperCase()}] ${s.taskTitle}`);
-        lines.push(`   Monthly Task: ${s.parentTitle}`);
-        lines.push(`   Deliverable: ${s.deliverable}`);
-        lines.push(`   Submitted: ${formatTimestamp(s.submittedAt)}`);
-        if (s.adminNote) lines.push(`   Note: ${s.adminNote}`);
-        lines.push("");
-      });
-      lines.push("");
-    });
+      if (!subs.length) continue;
 
-    const content = lines.join("\n");
-    const blob = new Blob([content], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `LITM-History-${new Date().toISOString().slice(0,10)}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+      const rows: HistoryRow[] = subs.map(s => ({
+        accomplishment: `[${s.status.toUpperCase()}] ${s.taskTitle} — ${s.deliverable}${s.adminNote ? ` (Note: ${s.adminNote})` : ""}`,
+        date: formatTimestamp(s.submittedAt),
+      }));
+
+      await generateAccomplishmentHistory({
+        staffName: u ? getFullName(u) : uid,
+        rows,
+      });
+    }
   }
 
   return (
@@ -1523,7 +1539,7 @@ function HistoryPage({ submissions, allUsers }: { submissions: Submission[]; all
         </div>
         <button onClick={downloadPDF}
           className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-all">
-          <FileText size={14}/> Download PDF
+          <FileText size={14}/> Download Word (.docx)
         </button>
       </div>
 
@@ -2134,7 +2150,7 @@ export default function App() {
         {page==="home" && <HomePage user={currentUser} tasks={myTasks} leaveRequests={leaveRequests} onSubmitLeave={handleSubmitLeave} onEvidenceSubmit={handleEvidenceSubmit}/>}
         {page==="profile" && <ProfilePage user={currentUser} onUpdate={handleUpdateProfile}/>}
         {page==="tasks" && <MyTasksPage tasks={myTasks} onUpdateTasks={handleUpdateMyTasks}/>}
-        {page==="accomplishments" && <MyAccomplishmentsPage tasks={myTasks}/>}
+        {page==="accomplishments" && <MyAccomplishmentsPage tasks={myTasks} currentUser={currentUser}/>}
         {page==="monitoring" && currentUser.isAdmin && <MonitoringPage users={users} allTasks={allTasks} leaveRequests={leaveRequests}/>}
         {page==="history" && currentUser.isAdmin && <HistoryPage submissions={submissions} allUsers={users}/>}
         {page==="notifications" && currentUser.isAdmin && (
