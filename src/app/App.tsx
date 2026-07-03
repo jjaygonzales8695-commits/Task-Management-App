@@ -16,7 +16,7 @@ import LITMLogo from "@/imports/LITM_Logo.png";
 // TYPES
 // ─────────────────────────────────────────────────────────────
 
-type Page = "home" | "profile" | "tasks" | "accomplishments" | "monitoring" | "notifications";
+type Page = "home" | "profile" | "tasks" | "accomplishments" | "monitoring" | "notifications" | "history";
 type DailyStatus = "pending" | "submitted" | "approved" | "returned" | "finished";
 
 interface UserProfile {
@@ -333,8 +333,9 @@ function TopNav({ user, page, setPage, onSignOut, unreadCount }: { user: UserPro
     { key:"profile", label:"Profile", icon:<User size={14}/> },
     { key:"tasks", label:"My Tasks", icon:<CheckSquare size={14}/> },
     { key:"accomplishments", label:"My Accomplishments", icon:<Award size={14}/> },
+    { key:"notifications", label:"Notifications", icon:<Bell size={14}/> },
   ];
-  if (user.isAdmin) { navItems.push({ key:"monitoring", label:"LITM Monitoring", icon:<Users size={14}/> }); navItems.push({ key:"notifications", label:"Notifications", icon:<Bell size={14}/> }); }
+  if (user.isAdmin) { navItems.push({ key:"monitoring", label:"LITM Monitoring", icon:<Users size={14}/> }); navItems.push({ key:"history", label:"History", icon:<ClipboardCheck size={14}/> }); }
   return (
     <header className="fixed top-0 left-0 right-0 z-40 bg-primary shadow-lg">
       <div className="max-w-7xl mx-auto px-4 flex items-center justify-between h-14">
@@ -356,7 +357,7 @@ function TopNav({ user, page, setPage, onSignOut, unreadCount }: { user: UserPro
             {user.profilePicture ? <img src={user.profilePicture} className="w-7 h-7 rounded-full object-cover ring-2 ring-accent/60" alt="avatar" /> : <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center text-accent-foreground text-xs font-bold">{user.firstName.charAt(0)}{user.lastName.charAt(0)}</div>}
             <span className="text-white/75 text-sm">{user.nickname||user.firstName}</span>
           </div>
-          {user.isAdmin && unreadCount > 0 && <button onClick={() => setPage("notifications")} className="relative md:hidden p-2 text-white/70 hover:text-white"><Bell size={18}/><span className="absolute top-0 right-0 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{unreadCount}</span></button>}
+          {unreadCount > 0 && <button onClick={() => setPage("notifications")} className="relative md:hidden p-2 text-white/70 hover:text-white"><Bell size={18}/><span className="absolute top-0 right-0 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{unreadCount}</span></button>}
           <button onClick={onSignOut} className="flex items-center gap-1.5 text-white/60 hover:text-white text-sm px-2 py-1.5 rounded-lg hover:bg-white/10 transition-all"><LogOut size={14}/> <span className="hidden sm:inline">Sign Out</span></button>
         </div>
       </div>
@@ -1221,7 +1222,7 @@ function ReportModal({ approvedDaily, finishedWeekly, finishedMonthly, month, ye
 // ─────────────────────────────────────────────────────────────
 // ADMIN NOTIFICATIONS PAGE
 // ─────────────────────────────────────────────────────────────
-function AdminNotificationsPage({ notifications, submissions, leaveRequests, allTasks, allUsers, onApproveSubmission, onReturnSubmission, onApproveLeave, onReturnLeave, onMarkRead }: {
+function AdminNotificationsPage({ notifications, submissions, leaveRequests, allTasks, allUsers, onApproveSubmission, onReturnSubmission, onApproveLeave, onReturnLeave, onMarkRead, onDelete }: {
   notifications: AppNotification[]; submissions: Submission[]; leaveRequests: LeaveRequest[];
   allTasks: TasksData; allUsers: UserProfile[];
   onApproveSubmission: (subId: string, dailyId: string, userId: string) => void;
@@ -1229,6 +1230,7 @@ function AdminNotificationsPage({ notifications, submissions, leaveRequests, all
   onApproveLeave: (reqId: string) => void;
   onReturnLeave: (reqId: string, note: string) => void;
   onMarkRead: (notifId: string) => void;
+  onDelete: (notifId: string) => void;
 }) {
   const [selected, setSelected] = useState<AppNotification|null>(null);
   const [returnNote, setReturnNote] = useState("");
@@ -1290,7 +1292,13 @@ function AdminNotificationsPage({ notifications, submissions, leaveRequests, all
                 <p className="text-xs text-muted-foreground truncate">{n.message}</p>
                 <p className="text-xs text-muted-foreground mt-1">{formatTimestamp(n.timestamp)}</p>
               </div>
-              <StatusBadge status={status}/>
+              <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                <StatusBadge status={status}/>
+                <button onClick={e=>{e.stopPropagation();onDelete(n.id);}}
+                  className="p-1 rounded-lg hover:bg-red-50 hover:text-red-500 text-muted-foreground transition-colors">
+                  <Trash2 size={13}/>
+                </button>
+              </div>
             </button>
           );
         })}
@@ -1364,6 +1372,236 @@ function AdminNotificationsPage({ notifications, submissions, leaveRequests, all
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+}
+
+// ─────────────────────────────────────────────────────────────
+// STAFF NOTIFICATIONS PAGE
+// Shows only approved/returned deliverable notifications for the
+// currently signed-in staff member, with delete option.
+// ─────────────────────────────────────────────────────────────
+function StaffNotificationsPage({ userId, notifications, submissions, onMarkRead, onDelete }: {
+  userId: string;
+  notifications: AppNotification[];
+  submissions: Submission[];
+  onMarkRead: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  // Staff only see notifications about their own submissions being approved/returned
+  const myNotifs = notifications
+    .filter(n => n.type === "submission" && n.userId === userId)
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+  function getStatus(n: AppNotification): string {
+    const sub = submissions.find(s => s.id === n.referenceId);
+    return sub?.status ?? "pending";
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-xl font-bold text-foreground">My Notifications</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">{myNotifs.filter(n=>!n.read).length} unread</p>
+      </div>
+
+      {myNotifs.length === 0 && (
+        <div className="bg-card border border-dashed border-border rounded-2xl py-16 text-center text-muted-foreground">
+          <Bell size={32} className="mx-auto mb-2 opacity-30"/>
+          <p className="text-sm">No notifications yet. Submit a deliverable to get started.</p>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {myNotifs.map(n => {
+          const status = getStatus(n);
+          const isApproved = status === "approved";
+          const isReturned = status === "returned";
+          const sub = submissions.find(s => s.id === n.referenceId);
+          return (
+            <div key={n.id} onClick={() => onMarkRead(n.id)}
+              className={`relative bg-card rounded-2xl border p-4 transition-all ${!n.read ? "border-accent/40 bg-secondary/30 shadow-sm" : "border-border"}`}>
+              <div className="flex items-start gap-3">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${isApproved ? "bg-green-100" : isReturned ? "bg-red-100" : "bg-blue-100"}`}>
+                  {isApproved ? <CheckCircle2 size={18} className="text-green-600"/> : isReturned ? <RotateCcw size={18} className="text-red-500"/> : <Clock size={18} className="text-blue-500"/>}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <p className="text-sm font-semibold text-foreground truncate">{sub?.taskTitle ?? n.title}</p>
+                    {!n.read && <span className="w-2 h-2 rounded-full bg-accent flex-shrink-0"/>}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{sub?.parentTitle}</p>
+                  {isReturned && sub?.adminNote && <p className="text-xs text-red-600 mt-1 font-medium">Note: {sub.adminNote}</p>}
+                  <div className="flex items-center justify-between mt-2">
+                    <p className="text-xs text-muted-foreground">{formatTimestamp(n.timestamp)}</p>
+                    <StatusBadge status={status}/>
+                  </div>
+                </div>
+                <button onClick={e => { e.stopPropagation(); onDelete(n.id); }}
+                  className="p-1.5 rounded-lg hover:bg-red-50 hover:text-red-500 text-muted-foreground transition-colors flex-shrink-0 ml-1">
+                  <Trash2 size={14}/>
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// HISTORY PAGE (Admin only)
+// Full record of all approved and returned deliverables,
+// organised by staff member, with PDF download.
+// ─────────────────────────────────────────────────────────────
+function HistoryPage({ submissions, allUsers }: { submissions: Submission[]; allUsers: UserProfile[] }) {
+  const [selectedUser, setSelectedUser] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<"all"|"approved"|"returned">("all");
+
+  const staff = allUsers.filter(u => !u.isAdmin);
+  const resolved = submissions.filter(s => s.status === "approved" || s.status === "returned");
+
+  const filtered = resolved.filter(s => {
+    const matchUser = selectedUser === "all" || s.userId === selectedUser;
+    const matchStatus = statusFilter === "all" || s.status === statusFilter;
+    return matchUser && matchStatus;
+  }).sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+
+  // Group by userId
+  const byUser: Record<string, Submission[]> = {};
+  filtered.forEach(s => {
+    if (!byUser[s.userId]) byUser[s.userId] = [];
+    byUser[s.userId].push(s);
+  });
+
+  function downloadPDF() {
+    const lines: string[] = [];
+    lines.push("LEARNING INNOVATION AND TECHNOLOGY MANAGEMENT");
+    lines.push("DELIVERABLE HISTORY REPORT");
+    lines.push(`Generated: ${new Date().toLocaleString("en-PH")}`);
+    lines.push("=".repeat(60));
+    lines.push("");
+
+    const usersToShow = selectedUser === "all"
+      ? Object.keys(byUser)
+      : [selectedUser];
+
+    usersToShow.forEach(uid => {
+      const u = allUsers.find(x => x.id === uid);
+      const subs = byUser[uid] ?? [];
+      if (!subs.length) return;
+      lines.push(`STAFF: ${u ? getFullName(u) : uid} — ${u?.position ?? ""}`);
+      lines.push("-".repeat(50));
+      subs.forEach((s, i) => {
+        lines.push(`${i+1}. [${s.status.toUpperCase()}] ${s.taskTitle}`);
+        lines.push(`   Monthly Task: ${s.parentTitle}`);
+        lines.push(`   Deliverable: ${s.deliverable}`);
+        lines.push(`   Submitted: ${formatTimestamp(s.submittedAt)}`);
+        if (s.adminNote) lines.push(`   Note: ${s.adminNote}`);
+        lines.push("");
+      });
+      lines.push("");
+    });
+
+    const content = lines.join("\n");
+    const blob = new Blob([content], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `LITM-History-${new Date().toISOString().slice(0,10)}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-foreground">Deliverable History</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">All approved and returned submissions by staff</p>
+        </div>
+        <button onClick={downloadPDF}
+          className="flex items-center gap-1.5 text-sm font-semibold px-4 py-2.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-all">
+          <FileText size={14}/> Download PDF
+        </button>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3">
+        <select value={selectedUser} onChange={e => setSelectedUser(e.target.value)}
+          className="px-3.5 py-2 rounded-xl border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all">
+          <option value="all">All Staff</option>
+          {staff.map(u => <option key={u.id} value={u.id}>{getFullName(u)}</option>)}
+        </select>
+        <div className="flex rounded-xl border border-border overflow-hidden bg-card">
+          {(["all","approved","returned"] as const).map(f => (
+            <button key={f} onClick={() => setStatusFilter(f)}
+              className={`px-3.5 py-2 text-sm font-medium capitalize transition-colors ${statusFilter===f ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted"}`}>
+              {f}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Results count */}
+      <p className="text-xs text-muted-foreground">{filtered.length} record{filtered.length!==1?"s":""} found</p>
+
+      {filtered.length === 0 && (
+        <div className="bg-card border border-dashed border-border rounded-2xl py-16 text-center text-muted-foreground">
+          <ClipboardCheck size={32} className="mx-auto mb-2 opacity-30"/>
+          <p className="text-sm">No records found for the selected filters.</p>
+        </div>
+      )}
+
+      {/* Grouped by staff */}
+      <div className="space-y-5">
+        {Object.entries(byUser).map(([uid, subs]) => {
+          const u = allUsers.find(x => x.id === uid);
+          return (
+            <div key={uid} className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
+              {/* Staff header */}
+              <div className="flex items-center gap-3 px-5 py-4 bg-primary/5 border-b border-border">
+                <div className="w-9 h-9 rounded-full overflow-hidden bg-primary flex items-center justify-center flex-shrink-0">
+                  {u?.profilePicture
+                    ? <img src={u.profilePicture} alt="" className="w-full h-full object-cover"/>
+                    : <span className="text-white text-sm font-bold">{u?.firstName.charAt(0)}{u?.lastName.charAt(0)}</span>}
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-foreground">{u ? getFullName(u) : uid}</p>
+                  <p className="text-xs text-muted-foreground">{u?.position} · {subs.length} record{subs.length!==1?"s":""}</p>
+                </div>
+                <div className="ml-auto flex gap-2">
+                  <span className="text-xs font-semibold px-2 py-1 rounded-full bg-green-100 text-green-700">{subs.filter(s=>s.status==="approved").length} approved</span>
+                  {subs.some(s=>s.status==="returned") && <span className="text-xs font-semibold px-2 py-1 rounded-full bg-red-100 text-red-700">{subs.filter(s=>s.status==="returned").length} returned</span>}
+                </div>
+              </div>
+
+              {/* Submission rows */}
+              <div className="divide-y divide-border/60">
+                {subs.map((s, i) => (
+                  <div key={s.id} className={`px-5 py-3.5 flex items-start gap-3 ${i%2===0?"bg-white":"bg-muted/10"}`}>
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${s.status==="approved"?"bg-green-100":"bg-red-100"}`}>
+                      {s.status==="approved"
+                        ? <CheckCircle2 size={14} className="text-green-600"/>
+                        : <RotateCcw size={14} className="text-red-500"/>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-foreground">{s.taskTitle}</p>
+                      <p className="text-xs text-muted-foreground">{s.parentTitle} · {s.deliverable}</p>
+                      {s.adminNote && <p className="text-xs text-red-600 mt-0.5">Note: {s.adminNote}</p>}
+                      <p className="text-xs text-muted-foreground mt-0.5">{formatTimestamp(s.submittedAt)}</p>
+                    </div>
+                    <StatusBadge status={s.status}/>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1568,7 +1806,13 @@ export default function App() {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
-  const unreadCount = notifications.filter(n=>!n.read).length;
+  const unreadCount = notifications.filter(n =>
+    !n.read && (
+      currentUser?.isAdmin
+        ? true
+        : n.type === "submission" && n.userId === currentUser?.id
+    )
+  ).length;
 
   // ── Load users + restore task statuses from Supabase on mount ─
   useEffect(() => {
@@ -1855,6 +2099,15 @@ export default function App() {
     } catch(err){ console.error("Mark read sync failed:", err); }
   }
 
+  async function handleDeleteNotification(notifId:string){
+    setNotifications(p=>p.filter(n=>n.id!==notifId));
+    try {
+      const { error } = await (await import("@/lib/supabase")).supabase
+        .from(TABLES.NOTIFICATIONS).delete().eq("id", notifId);
+      if (error) console.error("Delete notification failed:", error.message);
+    } catch(err){ console.error("Delete notification sync failed:", err); }
+  }
+
   // ── Render ────────────────────────────────────────────────
 
   if (loadingData) {
@@ -1885,13 +2138,23 @@ export default function App() {
         {page==="tasks" && <MyTasksPage tasks={myTasks} onUpdateTasks={handleUpdateMyTasks}/>}
         {page==="accomplishments" && <MyAccomplishmentsPage tasks={myTasks}/>}
         {page==="monitoring" && currentUser.isAdmin && <MonitoringPage users={users} allTasks={allTasks} leaveRequests={leaveRequests}/>}
+        {page==="history" && currentUser.isAdmin && <HistoryPage submissions={submissions} allUsers={users}/>}
         {page==="notifications" && currentUser.isAdmin && (
           <AdminNotificationsPage
             notifications={notifications} submissions={submissions} leaveRequests={leaveRequests}
             allTasks={allTasks} allUsers={users}
             onApproveSubmission={handleApproveSubmission} onReturnSubmission={handleReturnSubmission}
             onApproveLeave={handleApproveLeave} onReturnLeave={handleReturnLeave}
+            onMarkRead={handleMarkRead} onDelete={handleDeleteNotification}
+          />
+        )}
+        {page==="notifications" && !currentUser.isAdmin && (
+          <StaffNotificationsPage
+            userId={currentUser.id}
+            notifications={notifications}
+            submissions={submissions}
             onMarkRead={handleMarkRead}
+            onDelete={handleDeleteNotification}
           />
         )}
       </main>
