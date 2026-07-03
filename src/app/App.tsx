@@ -507,14 +507,16 @@ function EvidenceUploadModal({ task, onSubmit, onClose }: { task: DailyTask; onS
 // ─────────────────────────────────────────────────────────────
 // MONTH CALENDAR — enhanced indicators + click popup with pass slip/CTO
 // ─────────────────────────────────────────────────────────────
-function MonthCalendar({ allDailyTasks, leaveRequests, currentUser, onSubmitLeave }: {
+function MonthCalendar({ allDailyTasks, leaveRequests, allUsers, currentUser, onSubmitLeave }: {
   allDailyTasks: DailyTask[]; leaveRequests: LeaveRequest[];
-  currentUser: UserProfile; onSubmitLeave: (req: LeaveRequest, notif: AppNotification) => void;
+  allUsers: UserProfile[]; currentUser: UserProfile;
+  onSubmitLeave: (req: LeaveRequest, notif: AppNotification) => void;
 }) {
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth());
   const [selectedDate, setSelectedDate] = useState<string|null>(null);
+  const [mode, setMode] = useState<"tasks"|"leave">("tasks");
   const [showPassSlip, setShowPassSlip] = useState(false);
   const [showCTO, setShowCTO] = useState(false);
 
@@ -522,6 +524,7 @@ function MonthCalendar({ allDailyTasks, leaveRequests, currentUser, onSubmitLeav
   const daysInMonth = getDaysInMonth(viewYear, viewMonth);
   const isCurrentMonth = viewYear===now.getFullYear() && viewMonth===now.getMonth();
 
+  // Task mode data
   const tasksByDate: Record<string,DailyTask[]> = {};
   allDailyTasks.forEach(t => {
     const d = new Date(t.date);
@@ -531,10 +534,22 @@ function MonthCalendar({ allDailyTasks, leaveRequests, currentUser, onSubmitLeav
     }
   });
 
+  // Leave mode: admin sees all approved; staff see own (any status)
+  const visibleLeave = currentUser.isAdmin
+    ? leaveRequests.filter(r => r.status === "approved")
+    : leaveRequests.filter(r => r.userId === currentUser.id);
+
   const leaveByDate: Record<string,LeaveRequest[]> = {};
-  leaveRequests.filter(r => r.userId===currentUser.id).forEach(r => {
-    if (!leaveByDate[r.date]) leaveByDate[r.date]=[];
+  visibleLeave.forEach(r => {
+    if (!leaveByDate[r.date]) leaveByDate[r.date] = [];
     leaveByDate[r.date].push(r);
+  });
+
+  // Own leave for task-mode dots
+  const ownLeaveByDate: Record<string,LeaveRequest[]> = {};
+  leaveRequests.filter(r => r.userId === currentUser.id).forEach(r => {
+    if (!ownLeaveByDate[r.date]) ownLeaveByDate[r.date] = [];
+    ownLeaveByDate[r.date].push(r);
   });
 
   const cells: (number|null)[] = [...Array(firstDay).fill(null), ...Array.from({length:daysInMonth},(_,i)=>i+1)];
@@ -551,64 +566,124 @@ function MonthCalendar({ allDailyTasks, leaveRequests, currentUser, onSubmitLeav
     setShowPassSlip(false); setShowCTO(false); setSelectedDate(null);
   }
 
+  function getLeaveUserName(r: LeaveRequest) {
+    const u = allUsers.find(x => x.id === r.userId);
+    return u ? `${u.firstName} ${u.lastName}` : r.userName;
+  }
+  function getLeaveTypeLabel(type: string) {
+    return type === "pass_slip" ? "Pass Slip" : type === "cto" ? "CTO" : "Leave";
+  }
+
   return (
     <>
       <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3.5 bg-primary">
-          <button onClick={()=>navMonth(-1)} className="p-1.5 rounded-lg text-white/65 hover:text-white hover:bg-white/15 transition-colors"><ChevronLeft size={16}/></button>
-          <h3 className="text-sm font-semibold text-white">{MONTHS[viewMonth]} {viewYear}</h3>
-          <button onClick={()=>navMonth(1)} className="p-1.5 rounded-lg text-white/65 hover:text-white hover:bg-white/15 transition-colors"><ChevronRight size={16}/></button>
-        </div>
-        <div className="p-4">
-          <div className="grid grid-cols-7 mb-2">{DAYS_SHORT.map(d=><div key={d} className="text-center text-xs font-bold text-muted-foreground py-1">{d}</div>)}</div>
-          <div className="grid grid-cols-7 gap-1.5">
-            {cells.map((day,i) => {
-              if (!day) return <div key={i}/>;
-              const iso = `${viewYear}-${String(viewMonth+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
-              const isToday = isCurrentMonth && day===now.getDate();
-              const dayTasks = tasksByDate[iso]??[];
-              const hasTasks = dayTasks.length>0;
-              const allDone = hasTasks && dayTasks.every(t=>t.status==="approved"||t.status==="finished");
-              const someDone = hasTasks && !allDone && dayTasks.some(t=>t.status==="approved"||t.status==="finished");
-              const dayLeave = leaveByDate[iso]??[];
-              const hasPassSlip = dayLeave.some(r=>r.type==="pass_slip");
-              const hasCTO = dayLeave.some(r=>r.type==="cto"||r.type==="leave");
-              return (
-                <button key={i} onClick={()=>setSelectedDate(iso)} title={hasTasks?`${dayTasks.length} task${dayTasks.length>1?"s":""} — click to view`:undefined}
-                  className={`relative flex flex-col items-center justify-start pt-1.5 pb-1 h-12 w-full rounded-xl text-sm font-semibold transition-all hover:scale-105 cursor-pointer
-                    ${isToday ? "bg-accent text-accent-foreground shadow-lg ring-2 ring-accent/40" : hasTasks ? allDone ? "bg-green-100 border-2 border-green-400 text-green-800" : someDone ? "bg-blue-50 border-2 border-blue-400 text-blue-800" : "bg-amber-50 border-2 border-amber-400 text-amber-800" : "hover:bg-muted text-foreground border border-transparent hover:border-border"}`}>
-                  <span className="leading-none">{day}</span>
-                  {hasTasks && (
-                    <span className={`mt-0.5 text-[9px] font-bold leading-none ${isToday?"text-accent-foreground/70":allDone?"text-green-600":someDone?"text-blue-600":"text-amber-600"}`}>
-                      {dayTasks.length} task{dayTasks.length>1?"s":""}
-                    </span>
-                  )}
-                  {(hasPassSlip||hasCTO) && (
-                    <span className="absolute bottom-0.5 right-0.5 flex gap-0.5">
-                      {hasPassSlip && <span className="w-1.5 h-1.5 rounded-full bg-orange-500"/>}
-                      {hasCTO && <span className="w-1.5 h-1.5 rounded-full bg-purple-500"/>}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+        {/* Header with nav + mode toggle */}
+        <div className="flex items-center gap-2 px-3 py-3.5 bg-primary">
+          <button onClick={()=>navMonth(-1)} className="p-1.5 rounded-lg text-white/65 hover:text-white hover:bg-white/15 transition-colors flex-shrink-0"><ChevronLeft size={16}/></button>
+          <h3 className="text-sm font-semibold text-white flex-shrink-0">{MONTHS[viewMonth]} {viewYear}</h3>
+          <button onClick={()=>navMonth(1)} className="p-1.5 rounded-lg text-white/65 hover:text-white hover:bg-white/15 transition-colors flex-shrink-0"><ChevronRight size={16}/></button>
+          <div className="flex rounded-lg overflow-hidden border border-white/25 ml-auto flex-shrink-0">
+            <button onClick={()=>setMode("tasks")} className={`px-3 py-1 text-xs font-semibold transition-colors ${mode==="tasks"?"bg-white text-primary":"text-white/70 hover:text-white hover:bg-white/10"}`}>Tasks</button>
+            <button onClick={()=>setMode("leave")} className={`px-3 py-1 text-xs font-semibold transition-colors ${mode==="leave"?"bg-white text-primary":"text-white/70 hover:text-white hover:bg-white/10"}`}>Leaves</button>
           </div>
         </div>
-        <div className="px-4 pb-3 border-t border-border pt-2.5 grid grid-cols-2 gap-x-4 gap-y-1">
-          <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-md bg-amber-50 border-2 border-amber-400 flex-shrink-0"/><span className="text-xs text-muted-foreground">Has pending tasks</span></div>
-          <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-md bg-blue-50 border-2 border-blue-400 flex-shrink-0"/><span className="text-xs text-muted-foreground">Partially done</span></div>
-          <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-md bg-green-100 border-2 border-green-400 flex-shrink-0"/><span className="text-xs text-muted-foreground">All done</span></div>
-          <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-md bg-accent flex-shrink-0"/><span className="text-xs text-muted-foreground">Today</span></div>
-          <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-orange-500 flex-shrink-0"/><span className="text-xs text-muted-foreground">Pass slip</span></div>
-          <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-purple-500 flex-shrink-0"/><span className="text-xs text-muted-foreground">CTO/Leave</span></div>
+
+        <div className="p-4">
+          <div className="grid grid-cols-7 mb-2">{DAYS_SHORT.map(d=><div key={d} className="text-center text-xs font-bold text-muted-foreground py-1">{d}</div>)}</div>
+
+          {/* TASK MODE */}
+          {mode === "tasks" && (
+            <div className="grid grid-cols-7 gap-1.5">
+              {cells.map((day,i) => {
+                if (!day) return <div key={i}/>;
+                const iso = `${viewYear}-${String(viewMonth+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+                const isToday = isCurrentMonth && day===now.getDate();
+                const dayTasks = tasksByDate[iso]??[];
+                const hasTasks = dayTasks.length>0;
+                const allDone = hasTasks && dayTasks.every(t=>t.status==="approved"||t.status==="finished");
+                const someDone = hasTasks && !allDone && dayTasks.some(t=>t.status==="approved"||t.status==="finished");
+                const dayOwnLeave = ownLeaveByDate[iso]??[];
+                const hasPassSlip = dayOwnLeave.some(r=>r.type==="pass_slip");
+                const hasCTO = dayOwnLeave.some(r=>r.type==="cto"||r.type==="leave");
+                return (
+                  <button key={i} onClick={()=>setSelectedDate(iso)}
+                    className={`relative flex flex-col items-center justify-start pt-1.5 pb-1 h-12 w-full rounded-xl text-sm font-semibold transition-all hover:scale-105 cursor-pointer
+                      ${isToday?"bg-accent text-accent-foreground shadow-lg ring-2 ring-accent/40":hasTasks?allDone?"bg-green-100 border-2 border-green-400 text-green-800":someDone?"bg-blue-50 border-2 border-blue-400 text-blue-800":"bg-amber-50 border-2 border-amber-400 text-amber-800":"hover:bg-muted text-foreground border border-transparent hover:border-border"}`}>
+                    <span className="leading-none">{day}</span>
+                    {hasTasks && <span className={`mt-0.5 text-[9px] font-bold leading-none ${isToday?"text-accent-foreground/70":allDone?"text-green-600":someDone?"text-blue-600":"text-amber-600"}`}>{dayTasks.length} task{dayTasks.length>1?"s":""}</span>}
+                    {(hasPassSlip||hasCTO) && (
+                      <span className="absolute bottom-0.5 right-0.5 flex gap-0.5">
+                        {hasPassSlip && <span className="w-1.5 h-1.5 rounded-full bg-orange-500"/>}
+                        {hasCTO && <span className="w-1.5 h-1.5 rounded-full bg-purple-500"/>}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* LEAVE MODE */}
+          {mode === "leave" && (
+            <div className="grid grid-cols-7 gap-1.5">
+              {cells.map((day,i) => {
+                if (!day) return <div key={i}/>;
+                const iso = `${viewYear}-${String(viewMonth+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+                const isToday = isCurrentMonth && day===now.getDate();
+                const dayLeave = leaveByDate[iso]??[];
+                const hasLeave = dayLeave.length > 0;
+                const hasPass = dayLeave.some(r=>r.type==="pass_slip");
+                const hasCTOLeave = dayLeave.some(r=>r.type==="cto"||r.type==="leave");
+                const names = [...new Set(dayLeave.map(r => getLeaveUserName(r)))];
+                return (
+                  <button key={i} onClick={()=>setSelectedDate(iso)}
+                    className={`relative flex flex-col items-center justify-start pt-1 pb-1 min-h-[3rem] w-full rounded-xl transition-all hover:scale-105 cursor-pointer
+                      ${isToday?"bg-accent text-accent-foreground shadow-lg ring-2 ring-accent/40":
+                        hasPass&&hasCTOLeave?"bg-purple-50 border-2 border-purple-400":
+                        hasPass?"bg-orange-50 border-2 border-orange-400":
+                        hasCTOLeave?"bg-violet-50 border-2 border-violet-400":
+                        "hover:bg-muted text-foreground border border-transparent hover:border-border"}`}>
+                    <span className={`text-[11px] font-bold leading-none mt-0.5 ${isToday?"text-accent-foreground":hasLeave?"text-foreground":"text-foreground"}`}>{day}</span>
+                    {names.slice(0,2).map((name,ni) => (
+                      <span key={ni} className={`text-[8px] font-semibold leading-tight px-0.5 truncate w-full text-center mt-0.5 ${isToday?"text-accent-foreground/80":hasPass&&hasCTOLeave?"text-purple-700":hasPass?"text-orange-700":"text-violet-700"}`}>
+                        {name.split(" ")[0]}
+                      </span>
+                    ))}
+                    {names.length > 2 && <span className="text-[7px] text-muted-foreground">+{names.length-2} more</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Legend */}
+        <div className="px-4 pb-3 border-t border-border pt-2.5">
+          {mode === "tasks" ? (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+              <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-md bg-amber-50 border-2 border-amber-400 flex-shrink-0"/><span className="text-xs text-muted-foreground">Pending tasks</span></div>
+              <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-md bg-blue-50 border-2 border-blue-400 flex-shrink-0"/><span className="text-xs text-muted-foreground">Partially done</span></div>
+              <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-md bg-green-100 border-2 border-green-400 flex-shrink-0"/><span className="text-xs text-muted-foreground">All done</span></div>
+              <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-md bg-accent flex-shrink-0"/><span className="text-xs text-muted-foreground">Today</span></div>
+              <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-orange-500 flex-shrink-0"/><span className="text-xs text-muted-foreground">Pass slip</span></div>
+              <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-purple-500 flex-shrink-0"/><span className="text-xs text-muted-foreground">CTO/Leave</span></div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+              <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-md bg-orange-50 border-2 border-orange-400 flex-shrink-0"/><span className="text-xs text-muted-foreground">Pass Slip</span></div>
+              <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-md bg-violet-50 border-2 border-violet-400 flex-shrink-0"/><span className="text-xs text-muted-foreground">CTO / Leave</span></div>
+              <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-md bg-purple-50 border-2 border-purple-400 flex-shrink-0"/><span className="text-xs text-muted-foreground">Both types</span></div>
+              <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-md bg-accent flex-shrink-0"/><span className="text-xs text-muted-foreground">Today</span></div>
+              {currentUser.isAdmin && <p className="col-span-2 text-[11px] text-muted-foreground italic mt-0.5">Showing approved leaves only</p>}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Date detail modal */}
-      {selectedDate && !showPassSlip && !showCTO && (
+      {/* Task mode detail modal */}
+      {mode === "tasks" && selectedDate && !showPassSlip && !showCTO && (
         <Modal title={formatDateWithDay(selectedDate)} onClose={()=>setSelectedDate(null)} wide>
           <div className="space-y-4">
-            {/* Task list */}
             {selectedTasks.length>0 ? (
               <div>
                 <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">{selectedTasks.length} Task{selectedTasks.length>1?"s":""}</p>
@@ -623,30 +698,57 @@ function MonthCalendar({ allDailyTasks, leaveRequests, currentUser, onSubmitLeav
             ) : (
               <div className="py-4 text-center text-sm text-muted-foreground">No tasks for this date.</div>
             )}
+            <div className="border-t border-border pt-3 grid grid-cols-2 gap-3">
+              <button onClick={()=>setShowPassSlip(true)} className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-semibold hover:bg-orange-600 transition-all"><FileText size={14}/>Pass Slip</button>
+              <button onClick={()=>setShowCTO(true)} className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 transition-all"><Plane size={14}/>Request CTO/Leave</button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
-            {/* Leave requests */}
-            {selectedLeave.length>0 && (
-              <div className="border-t border-border pt-3">
-                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">Leave Requests</p>
-                {selectedLeave.map(r => (
-                  <div key={r.id} className="p-3 rounded-xl border border-border bg-muted/20 mb-2 text-sm">
-                    <div className="flex items-center justify-between"><span className="font-semibold text-foreground capitalize">{r.type==="pass_slip"?"Pass Slip":r.type==="cto"?"CTO":"Leave"}</span><StatusBadge status={r.status}/></div>
-                    {r.type==="pass_slip" && <p className="text-xs text-muted-foreground mt-1">Time: {r.timeFrom} – {r.timeTo}</p>}
-                    {r.reason && <p className="text-xs text-muted-foreground">Reason: {r.reason}</p>}
-                  </div>
-                ))}
+      {/* Leave mode detail modal */}
+      {mode === "leave" && selectedDate && (
+        <Modal title={formatDateWithDay(selectedDate)} onClose={()=>setSelectedDate(null)} wide>
+          <div className="space-y-3">
+            {selectedLeave.length === 0 ? (
+              <div className="py-8 text-center text-muted-foreground text-sm">No leave records for this date.</div>
+            ) : (
+              <>
+                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{selectedLeave.length} Leave Record{selectedLeave.length>1?"s":""}</p>
+                {selectedLeave.map(r => {
+                  const u = allUsers.find(x=>x.id===r.userId);
+                  return (
+                    <div key={r.id} className={`rounded-xl border p-4 space-y-2 ${r.type==="pass_slip"?"border-orange-200 bg-orange-50":r.type==="cto"?"border-violet-200 bg-violet-50":"border-purple-200 bg-purple-50"}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0 overflow-hidden">
+                            {u?.profilePicture?<img src={u.profilePicture} alt="" className="w-full h-full object-cover"/>:<span className="text-white text-[10px] font-bold">{u?.firstName.charAt(0)}{u?.lastName.charAt(0)}</span>}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-foreground truncate">{u ? getFullName(u) : r.userName}</p>
+                            <p className="text-xs text-muted-foreground truncate">{u?.position}</p>
+                          </div>
+                        </div>
+                        <StatusBadge status={r.status}/>
+                      </div>
+                      <div>
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${r.type==="pass_slip"?"bg-orange-200 text-orange-800":r.type==="cto"?"bg-violet-200 text-violet-800":"bg-purple-200 text-purple-800"}`}>{getLeaveTypeLabel(r.type)}</span>
+                      </div>
+                      {r.type==="pass_slip" && r.timeFrom && <p className="text-xs text-foreground/80"><span className="font-semibold">Time:</span> {r.timeFrom} – {r.timeTo}</p>}
+                      {r.reason && <p className="text-xs text-foreground/80"><span className="font-semibold">Reason:</span> {r.reason}</p>}
+                      <p className="text-xs text-muted-foreground">Submitted: {formatTimestamp(r.submittedAt)}</p>
+                      {r.adminNote && <p className="text-xs text-red-600 font-medium">Admin note: {r.adminNote}</p>}
+                    </div>
+                  );
+                })}
+              </>
+            )}
+            {!currentUser.isAdmin && (
+              <div className="border-t border-border pt-3 grid grid-cols-2 gap-3">
+                <button onClick={()=>{ setSelectedDate(null); setTimeout(()=>{ setMode("tasks"); setShowPassSlip(true); },50); }} className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-semibold hover:bg-orange-600 transition-all"><FileText size={14}/>Pass Slip</button>
+                <button onClick={()=>{ setSelectedDate(null); setTimeout(()=>{ setMode("tasks"); setShowCTO(true); },50); }} className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 transition-all"><Plane size={14}/>Request CTO/Leave</button>
               </div>
             )}
-
-            {/* Action buttons */}
-            <div className="border-t border-border pt-3 grid grid-cols-2 gap-3">
-              <button onClick={()=>setShowPassSlip(true)} className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-semibold hover:bg-orange-600 transition-all">
-                <FileText size={14}/>Pass Slip
-              </button>
-              <button onClick={()=>setShowCTO(true)} className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 transition-all">
-                <Plane size={14}/>Request CTO/Leave
-              </button>
-            </div>
           </div>
         </Modal>
       )}
@@ -658,10 +760,9 @@ function MonthCalendar({ allDailyTasks, leaveRequests, currentUser, onSubmitLeav
 }
 
 // ─────────────────────────────────────────────────────────────
-// HOME PAGE — checklist-style task table
-// ─────────────────────────────────────────────────────────────
-function HomePage({ user, tasks, leaveRequests, onSubmitLeave, onEvidenceSubmit }: {
+function HomePage({ user, tasks, leaveRequests, allUsers, onSubmitLeave, onEvidenceSubmit }: {
   user: UserProfile; tasks: MonthlyTask[]; leaveRequests: LeaveRequest[];
+  allUsers: UserProfile[];
   onSubmitLeave: (req: LeaveRequest, notif: AppNotification) => void;
   onEvidenceSubmit: (dailyId: string, images: string[], submission: Submission, notif: AppNotification) => void;
 }) {
@@ -690,7 +791,7 @@ function HomePage({ user, tasks, leaveRequests, onSubmitLeave, onEvidenceSubmit 
   return (
     <div className="space-y-6">
       <div><h1 className="text-xl font-bold text-foreground">{greeting}, {user.nickname||user.firstName}!</h1><p className="text-sm text-muted-foreground mt-0.5">{formatDisplay(TODAY)} · {user.position}</p></div>
-      <MonthCalendar allDailyTasks={allDaily} leaveRequests={leaveRequests} currentUser={user} onSubmitLeave={onSubmitLeave} />
+      <MonthCalendar allDailyTasks={allDaily} leaveRequests={leaveRequests} allUsers={allUsers} currentUser={user} onSubmitLeave={onSubmitLeave} />
 
       {/* Today's Tasks — checklist style */}
       <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
@@ -2163,7 +2264,7 @@ export default function App() {
     <div className="min-h-screen bg-background">
       <TopNav user={currentUser} page={page} setPage={setPage} onSignOut={handleSignOut} unreadCount={unreadCount}/>
       <main className="max-w-4xl mx-auto px-4 pb-12" style={{paddingTop:"4.5rem"}}>
-        {page==="home" && <HomePage user={currentUser} tasks={myTasks} leaveRequests={leaveRequests} onSubmitLeave={handleSubmitLeave} onEvidenceSubmit={handleEvidenceSubmit}/>}
+        {page==="home" && <HomePage user={currentUser} tasks={myTasks} leaveRequests={leaveRequests} allUsers={users} onSubmitLeave={handleSubmitLeave} onEvidenceSubmit={handleEvidenceSubmit}/>}
         {page==="profile" && <ProfilePage user={currentUser} onUpdate={handleUpdateProfile}/>}
         {page==="tasks" && <MyTasksPage tasks={myTasks} onUpdateTasks={handleUpdateMyTasks}/>}
         {page==="accomplishments" && <MyAccomplishmentsPage tasks={myTasks} currentUser={currentUser}/>}
