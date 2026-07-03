@@ -48,7 +48,6 @@ async function buildLetterheadHeader(): Promise<Header> {
         children: [
           new ImageRun({
             data: buffer,
-            type: 'png',
             transformation: { width: LOGO_WIDTH, height: LOGO_HEIGHT },
           }),
         ],
