@@ -1197,7 +1197,8 @@ function ReportModal({ currentUser, approvedDaily, month, year, daysInMonth, onC
         }));
       await generateAccomplishmentReport({
         staffName: getFullName(currentUser),
-        staffItem: currentUser.designation || currentUser.position,
+        staffItem: currentUser.designation,
+        staffPosition: currentUser.position,
         dateRange: formatDateRange(month, year, half),
         rows,
       });
