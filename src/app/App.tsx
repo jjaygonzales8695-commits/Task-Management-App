@@ -1376,8 +1376,6 @@ function AdminNotificationsPage({ notifications, submissions, leaveRequests, all
   );
 }
 
-}
-
 // ─────────────────────────────────────────────────────────────
 // STAFF NOTIFICATIONS PAGE
 // Shows only approved/returned deliverable notifications for the
