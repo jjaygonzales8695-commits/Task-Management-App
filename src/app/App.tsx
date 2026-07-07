@@ -20,7 +20,7 @@ import LITMLogo from "@/imports/LITM_Logo_Circular.png";
 // TYPES
 // ─────────────────────────────────────────────────────────────
 
-type Page = "home" | "profile" | "tasks" | "accomplishments" | "monitoring" | "notifications" | "history" | "chat";
+type Page = "home" | "profile" | "tasks" | "accomplishments" | "monitoring" | "notifications" | "history";
 type DailyStatus = "pending" | "submitted" | "approved" | "returned" | "finished";
 
 interface UserProfile {
@@ -364,15 +364,30 @@ function RegisterPage({ users, onRegister, onBack }: { users: UserProfile[]; onR
 // TOP NAV
 // ─────────────────────────────────────────────────────────────
 function TopNav({ user, page, setPage, onSignOut, unreadCount }: { user: UserProfile; page: Page; setPage: (p: Page) => void; onSignOut: () => void; unreadCount: number }) {
-  const navItems: { key: Page; label: string; icon: React.ReactNode }[] = [
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const primaryItems: { key: Page; label: string; icon: React.ReactNode }[] = [
     { key:"home", label:"Home", icon:<Home size={14}/> },
-    { key:"profile", label:"Profile", icon:<User size={14}/> },
     { key:"tasks", label:"My Tasks", icon:<CheckSquare size={14}/> },
-    { key:"accomplishments", label:"My Accomplishments", icon:<Award size={14}/> },
-    { key:"chat", label:"Chat", icon:<MessageCircle size={14}/> },
     { key:"notifications", label:"Notifications", icon:<Bell size={14}/> },
   ];
-  if (user.isAdmin) { navItems.push({ key:"monitoring", label:"LITM Monitoring", icon:<Users size={14}/> }); navItems.push({ key:"history", label:"History", icon:<ClipboardCheck size={14}/> }); }
+  const menuItems: { key: Page; label: string; icon: React.ReactNode }[] = [
+    { key:"profile", label:"Profile", icon:<User size={14}/> },
+    { key:"accomplishments", label:"My Accomplishments", icon:<Award size={14}/> },
+  ];
+  if (user.isAdmin) { menuItems.push({ key:"monitoring", label:"LITM Monitoring", icon:<Users size={14}/> }); menuItems.push({ key:"history", label:"History", icon:<ClipboardCheck size={14}/> }); }
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  function goTo(p: Page) { setPage(p); setMenuOpen(false); }
+
   return (
     <header className="fixed top-0 left-0 right-0 z-40 bg-primary shadow-lg">
       <div className="max-w-7xl mx-auto px-4 flex items-center justify-between h-14">
@@ -381,7 +396,7 @@ function TopNav({ user, page, setPage, onSignOut, unreadCount }: { user: UserPro
           <span className="text-white font-bold text-sm tracking-wide hidden sm:inline">LITM Task Tracker</span>
         </div>
         <nav className="hidden md:flex items-center gap-0.5">
-          {navItems.map(item => (
+          {primaryItems.map(item => (
             <button key={item.key} onClick={() => setPage(item.key)}
               className={`relative flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium transition-all ${page===item.key ? "bg-accent text-accent-foreground font-semibold" : "text-white/70 hover:text-white hover:bg-white/10"}`}>
               {item.icon} {item.label}
@@ -390,16 +405,32 @@ function TopNav({ user, page, setPage, onSignOut, unreadCount }: { user: UserPro
           ))}
         </nav>
         <div className="flex items-center gap-2">
-          <div className="hidden sm:flex items-center gap-2 border-l border-white/20 pl-3 ml-1">
-            {user.profilePicture ? <img src={user.profilePicture} className="w-7 h-7 rounded-full object-cover ring-2 ring-accent/60" alt="avatar" /> : <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center text-accent-foreground text-xs font-bold">{user.firstName.charAt(0)}{user.lastName.charAt(0)}</div>}
-            <span className="text-white/75 text-sm">{user.nickname||user.firstName}</span>
-          </div>
           {unreadCount > 0 && <button onClick={() => setPage("notifications")} className="relative md:hidden p-2 text-white/70 hover:text-white"><Bell size={18}/><span className="absolute top-0 right-0 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{unreadCount}</span></button>}
+          <div className="relative" ref={menuRef}>
+            <button onClick={() => setMenuOpen(o=>!o)} className={`flex items-center gap-2 pl-1 pr-2 py-1 rounded-full border-l border-white/20 transition-all ${menuOpen ? "bg-white/10" : "hover:bg-white/10"}`}>
+              {user.profilePicture ? <img src={user.profilePicture} className="w-7 h-7 rounded-full object-cover ring-2 ring-accent/60" alt="avatar" /> : <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center text-accent-foreground text-xs font-bold flex-shrink-0">{user.firstName.charAt(0)}{user.lastName.charAt(0)}</div>}
+              <span className="text-white/85 text-sm hidden sm:inline">{user.nickname||user.firstName}</span>
+              <ChevronDown size={14} className={`text-white/60 transition-transform ${menuOpen?"rotate-180":""}`}/>
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-full mt-2 w-56 bg-card rounded-xl border border-border shadow-xl overflow-hidden py-1.5 z-50">
+                <div className="px-3.5 py-2 border-b border-border">
+                  <p className="text-sm font-semibold text-foreground truncate">{getFullName(user)}</p>
+                  <p className="text-xs text-muted-foreground truncate">{user.designation}</p>
+                </div>
+                {menuItems.map(item => (
+                  <button key={item.key} onClick={() => goTo(item.key)} className={`w-full flex items-center gap-2.5 px-3.5 py-2 text-sm transition-all ${page===item.key ? "bg-secondary text-foreground font-semibold" : "text-foreground/80 hover:bg-muted"}`}>
+                    {item.icon} {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <button onClick={onSignOut} className="flex items-center gap-1.5 text-white/60 hover:text-white text-sm px-2 py-1.5 rounded-lg hover:bg-white/10 transition-all"><LogOut size={14}/> <span className="hidden sm:inline">Sign Out</span></button>
         </div>
       </div>
       <div className="md:hidden flex overflow-x-auto gap-0.5 px-4 pb-2">
-        {navItems.map(item => (
+        {primaryItems.map(item => (
           <button key={item.key} onClick={() => setPage(item.key)}
             className={`relative flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${page===item.key ? "bg-accent text-accent-foreground font-semibold" : "text-white/55 hover:text-white hover:bg-white/10"}`}>
             {item.icon} {item.label}
@@ -2028,23 +2059,42 @@ function MonitoringPage({ users, allTasks, leaveRequests }: { users: UserProfile
 }
 
 // ─────────────────────────────────────────────────────────────
-// CHAT PAGE — Messenger-style group chatroom for staff
+// FLOATING CHAT WIDGET — Messenger-style pop-up group chatroom
 // ─────────────────────────────────────────────────────────────
-function ChatPage({ currentUser, allUsers }: { currentUser: UserProfile; allUsers: UserProfile[] }) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+type PendingChatMessage = ChatMessage & { failed?: boolean; sending?: boolean };
+
+function FloatingChatWidget({ currentUser, allUsers }: { currentUser: UserProfile; allUsers: UserProfile[] }) {
+  const [open, setOpen] = useState(false);
+  const [serverMessages, setServerMessages] = useState<ChatMessage[]>([]);
+  const [pending, setPending] = useState<PendingChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
-  const [sending, setSending] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [lastSeenCount, setLastSeenCount] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
+
+  // Merge confirmed server messages with any still-optimistic local ones,
+  // so a message never visually "disappears" while its insert is in flight.
+  const messages: PendingChatMessage[] = [
+    ...serverMessages,
+    ...pending.filter(p => !serverMessages.some(s => s.id === p.id)),
+  ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
   async function loadMessages() {
     try {
       const rows = await getAll<Record<string, unknown>>(TABLES.CHAT_MESSAGES);
       const msgs = rows.map(rowToChatMessage).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-      setMessages(msgs);
+      setServerMessages(msgs);
+      setConnectionError(null);
+      // Drop any pending messages that are now confirmed on the server.
+      setPending(prev => prev.filter(p => !msgs.some(m => m.id === p.id)));
     } catch (err) {
       console.error("Failed to load chat messages:", err);
+      // Keep whatever we already had on screen — do NOT clear it — and surface
+      // a visible reason instead of letting messages silently vanish.
+      setConnectionError(
+        "Chat couldn't connect to the database. Ask your admin to confirm the chat_messages table exists (run supabase_migration.sql) and that Realtime is enabled for it."
+      );
     } finally {
       setLoading(false);
     }
@@ -2059,27 +2109,43 @@ function ChatPage({ currentUser, allUsers }: { currentUser: UserProfile; allUser
   }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length]);
+    if (open) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages.length, open]);
 
-  async function handleSend() {
-    const text = draft.trim();
-    if (!text || sending) return;
-    setSending(true);
-    const msg: ChatMessage = {
-      id: genId(), senderId: currentUser.id, senderName: getFullName(currentUser),
-      senderPicture: currentUser.profilePicture || undefined,
-      message: text, createdAt: nowISO(),
-    };
-    setMessages(prev => [...prev, msg]);
-    setDraft("");
+  useEffect(() => {
+    if (open) setLastSeenCount(messages.length);
+  }, [open, messages.length]);
+
+  async function sendMessage(msg: PendingChatMessage) {
+    setPending(prev => prev.map(p => p.id === msg.id ? { ...p, sending: true, failed: false } : p));
     try {
       await insertRecord(TABLES.CHAT_MESSAGES, chatMessageToRow(msg));
+      setPending(prev => prev.map(p => p.id === msg.id ? { ...p, sending: false } : p));
+      loadMessages();
     } catch (err) {
       console.error("Failed to send chat message:", err);
-    } finally {
-      setSending(false);
+      setPending(prev => prev.map(p => p.id === msg.id ? { ...p, sending: false, failed: true } : p));
+      setConnectionError(
+        "Your message couldn't be saved — it only exists on your screen right now. Ask your admin to confirm the chat_messages table exists in Supabase."
+      );
     }
+  }
+
+  function handleSend() {
+    const text = draft.trim();
+    if (!text) return;
+    const msg: PendingChatMessage = {
+      id: genId(), senderId: currentUser.id, senderName: getFullName(currentUser),
+      senderPicture: currentUser.profilePicture || undefined,
+      message: text, createdAt: nowISO(), sending: true,
+    };
+    setPending(prev => [...prev, msg]);
+    setDraft("");
+    sendMessage(msg);
+  }
+
+  function retry(msg: PendingChatMessage) {
+    sendMessage(msg);
   }
 
   function initials(name: string) {
@@ -2087,59 +2153,79 @@ function ChatPage({ currentUser, allUsers }: { currentUser: UserProfile; allUser
     return ((parts[0]?.[0] ?? "") + (parts[parts.length - 1]?.[0] ?? "")).toUpperCase();
   }
 
-  return (
-    <div className="space-y-4">
-      <div><h1 className="text-xl font-bold text-foreground flex items-center gap-2"><MessageCircle size={20} className="text-accent"/>LITM Staff Chat</h1><p className="text-sm text-muted-foreground mt-0.5">A shared chatroom for all LITM staff and admins.</p></div>
+  const unread = !open ? Math.max(0, messages.length - lastSeenCount) : 0;
 
-      <div className="bg-card rounded-2xl border border-border shadow-sm flex flex-col overflow-hidden" style={{ height: "70vh" }}>
-        <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-muted/20">
-          {loading ? (
-            <div className="h-full flex items-center justify-center text-sm text-muted-foreground">Loading messages…</div>
-          ) : messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center gap-2 text-muted-foreground">
-              <MessageCircle size={28} className="opacity-40"/>
-              <p className="text-sm">No messages yet. Say hello to your team!</p>
+  return (
+    <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-3">
+      {open && (
+        <div className="w-[92vw] max-w-sm bg-card rounded-2xl border border-border shadow-2xl flex flex-col overflow-hidden" style={{ height: "70vh", maxHeight: 560 }}>
+          <div className="flex items-center justify-between px-4 py-3 bg-primary text-white flex-shrink-0">
+            <div className="flex items-center gap-2"><MessageCircle size={16}/><span className="text-sm font-semibold">LITM Staff Chat</span></div>
+            <button onClick={() => setOpen(false)} className="p-1 rounded-lg hover:bg-white/10 transition-all"><X size={16}/></button>
+          </div>
+
+          {connectionError && (
+            <div className="px-3 py-2 bg-amber-50 border-b border-amber-200 text-[11px] text-amber-800 flex items-start gap-1.5 flex-shrink-0">
+              <AlertCircle size={12} className="flex-shrink-0 mt-0.5"/><span>{connectionError}</span>
             </div>
-          ) : (
-            messages.map((m, i) => {
-              const isMe = m.senderId === currentUser.id;
-              const prev = messages[i-1];
-              const showHeader = !prev || prev.senderId !== m.senderId || (new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime()) > 5*60*1000;
-              const sender = allUsers.find(u => u.id === m.senderId);
-              return (
-                <div key={m.id} className={`flex items-end gap-2 ${isMe ? "justify-end" : "justify-start"}`}>
-                  {!isMe && (
-                    <div className="w-7 h-7 rounded-full bg-primary flex-shrink-0 overflow-hidden flex items-center justify-center">
-                      {sender?.profilePicture ? <img src={sender.profilePicture} alt="" className="w-full h-full object-cover"/> : <span className="text-white text-[10px] font-bold">{initials(m.senderName)}</span>}
-                    </div>
-                  )}
-                  <div className={`max-w-[70%] ${isMe ? "items-end" : "items-start"} flex flex-col`}>
-                    {showHeader && !isMe && <span className="text-[11px] font-semibold text-muted-foreground mb-0.5 px-1">{m.senderName}</span>}
-                    <div className={`px-3.5 py-2 rounded-2xl text-sm break-words whitespace-pre-wrap ${isMe ? "bg-accent text-accent-foreground rounded-br-sm" : "bg-white border border-border text-foreground rounded-bl-sm"}`}>
-                      {m.message}
-                    </div>
-                    <span className="text-[10px] text-muted-foreground mt-0.5 px-1">{formatTimestamp(m.createdAt)}</span>
-                  </div>
-                </div>
-              );
-            })
           )}
-          <div ref={bottomRef}/>
+
+          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 bg-muted/20">
+            {loading ? (
+              <div className="h-full flex items-center justify-center text-sm text-muted-foreground">Loading messages…</div>
+            ) : messages.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-center gap-2 text-muted-foreground">
+                <MessageCircle size={28} className="opacity-40"/>
+                <p className="text-sm">No messages yet. Say hello to your team!</p>
+              </div>
+            ) : (
+              messages.map((m, i) => {
+                const isMe = m.senderId === currentUser.id;
+                const prev = messages[i-1];
+                const showHeader = !prev || prev.senderId !== m.senderId || (new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime()) > 5*60*1000;
+                const sender = allUsers.find(u => u.id === m.senderId);
+                return (
+                  <div key={m.id} className={`flex items-end gap-2 ${isMe ? "justify-end" : "justify-start"}`}>
+                    {!isMe && (
+                      <div className="w-6 h-6 rounded-full bg-primary flex-shrink-0 overflow-hidden flex items-center justify-center">
+                        {sender?.profilePicture ? <img src={sender.profilePicture} alt="" className="w-full h-full object-cover"/> : <span className="text-white text-[9px] font-bold">{initials(m.senderName)}</span>}
+                      </div>
+                    )}
+                    <div className={`max-w-[75%] ${isMe ? "items-end" : "items-start"} flex flex-col`}>
+                      {showHeader && !isMe && <span className="text-[10px] font-semibold text-muted-foreground mb-0.5 px-1">{m.senderName}</span>}
+                      <div className={`px-3 py-1.5 rounded-2xl text-sm break-words whitespace-pre-wrap ${isMe ? (m.failed ? "bg-red-100 text-red-700 border border-red-300" : "bg-accent text-accent-foreground") + " rounded-br-sm" : "bg-white border border-border text-foreground rounded-bl-sm"}`}>
+                        {m.message}
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-0.5 px-1">
+                        <span className="text-[9px] text-muted-foreground">{m.sending ? "Sending…" : formatTimestamp(m.createdAt)}</span>
+                        {m.failed && <button onClick={()=>retry(m)} className="text-[9px] font-semibold text-red-600 hover:underline">Failed — tap to retry</button>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+            <div ref={bottomRef}/>
+          </div>
+          <div className="border-t border-border p-2.5 flex items-end gap-2 bg-card flex-shrink-0">
+            <textarea
+              value={draft}
+              onChange={e=>setDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+              rows={1}
+              placeholder="Type a message…"
+              className="flex-1 resize-none px-3 py-2 rounded-2xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all max-h-24"
+            />
+            <button onClick={handleSend} disabled={!draft.trim()} className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-all ${draft.trim() ? "bg-accent text-accent-foreground hover:bg-accent/80" : "bg-muted text-muted-foreground cursor-not-allowed"}`}>
+              <Send size={15}/>
+            </button>
+          </div>
         </div>
-        <div className="border-t border-border p-3 flex items-end gap-2 bg-card">
-          <textarea
-            value={draft}
-            onChange={e=>setDraft(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-            rows={1}
-            placeholder="Type a message…"
-            className="flex-1 resize-none px-3.5 py-2.5 rounded-2xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all max-h-28"
-          />
-          <button onClick={handleSend} disabled={!draft.trim() || sending} className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-all ${draft.trim() ? "bg-accent text-accent-foreground hover:bg-accent/80" : "bg-muted text-muted-foreground cursor-not-allowed"}`}>
-            <Send size={16}/>
-          </button>
-        </div>
-      </div>
+      )}
+      <button onClick={() => setOpen(o=>!o)} className="relative w-14 h-14 rounded-full bg-accent text-accent-foreground shadow-xl flex items-center justify-center hover:bg-accent/90 transition-all">
+        {open ? <X size={22}/> : <MessageCircle size={22}/>}
+        {!open && unread > 0 && <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{unread > 9 ? "9+" : unread}</span>}
+      </button>
     </div>
   );
 }
@@ -2313,10 +2399,19 @@ export default function App() {
             try { await (await import("@/lib/supabase")).supabase.from(TABLES.USERS).delete().eq("id", trial.id); } catch { /* ignore */ }
           }
           setUsers(liveUsers.filter(u => u.username !== "testuser" && u.id !== "u-test"));
-          // Ensure both seeded admin accounts exist even on an already-initialized database.
+          // Ensure both seeded admin accounts exist — and have a working password —
+          // even on an already-initialized database (fixes "invalid password" for an
+          // admin row that was partially created, e.g. by an earlier manual insert).
           for (const admin of INITIAL_USERS.filter(u => u.isAdmin)) {
-            if (!liveUsers.some(u => u.id === admin.id || u.username === admin.username)) {
-              try { await insertRecord(TABLES.USERS, userToRow(admin)); setUsers(p => [...p, admin]); } catch { /* ignore */ }
+            const existing = liveUsers.find(u => u.id === admin.id || u.username === admin.username);
+            if (!existing) {
+              try { await insertRecord(TABLES.USERS, userToRow(admin)); setUsers(p => [...p, admin]); }
+              catch (e) { console.error(`Failed to seed admin account ${admin.username}:`, e); }
+            } else if (!existing.password) {
+              try {
+                await updateRecord(TABLES.USERS, { ...userToRow(admin), id: existing.id });
+                setUsers(p => p.map(u => u.id === existing.id ? { ...u, password: admin.password } : u));
+              } catch (e) { console.error(`Failed to repair admin account ${admin.username}:`, e); }
             }
           }
         } else {
@@ -2650,7 +2745,6 @@ export default function App() {
         {page==="profile" && <ProfilePage user={currentUser} onUpdate={handleUpdateProfile}/>}
         {page==="tasks" && <MyTasksPage tasks={myTasks} onUpdateTasks={handleUpdateMyTasks}/>}
         {page==="accomplishments" && <MyAccomplishmentsPage tasks={myTasks} currentUser={currentUser} accomplishmentLogs={accomplishmentLogs}/>}
-        {page==="chat" && <ChatPage currentUser={currentUser} allUsers={users}/>}
         {page==="monitoring" && currentUser.isAdmin && <MonitoringPage users={users} allTasks={allTasks} leaveRequests={leaveRequests}/>}
         {page==="history" && currentUser.isAdmin && <HistoryPage submissions={submissions} allUsers={users}/>}
         {page==="notifications" && currentUser.isAdmin && (
@@ -2672,6 +2766,7 @@ export default function App() {
           />
         )}
       </main>
+      <FloatingChatWidget currentUser={currentUser} allUsers={users}/>
     </div>
   );
 }
