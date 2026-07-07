@@ -11,16 +11,16 @@ import {
   Plus, Edit2, Check, Eye, Camera, Upload, FileText, ChevronDown, ChevronUp,
   X, Users, Trash2, Clock, CheckCircle2, Circle, AlertCircle,
   Printer, Calendar as CalendarIcon, Sparkles, Bell, RotateCcw,
-  ClipboardCheck, Plane,
+  ClipboardCheck, Plane, MessageCircle, Send,
 } from "lucide-react";
 import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
-import LITMLogo from "@/imports/LITM_Logo.png";
+import LITMLogo from "@/imports/LITM_Logo_Circular.png";
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────────────────────
 
-type Page = "home" | "profile" | "tasks" | "accomplishments" | "monitoring" | "notifications" | "history";
+type Page = "home" | "profile" | "tasks" | "accomplishments" | "monitoring" | "notifications" | "history" | "chat";
 type DailyStatus = "pending" | "submitted" | "approved" | "returned" | "finished";
 
 interface UserProfile {
@@ -56,9 +56,10 @@ interface Submission {
 }
 
 type LeaveType = "pass_slip" | "cto" | "leave";
+type DayPart = "AM" | "PM" | "full";
 interface LeaveRequest {
   id: string; userId: string; userName: string;
-  type: LeaveType; date: string;
+  type: LeaveType; date: string; dateTo?: string; dayPart?: DayPart;
   timeFrom?: string; timeTo?: string; reason?: string;
   submittedAt: string; status: "pending" | "approved" | "returned"; adminNote?: string;
 }
@@ -68,6 +69,30 @@ interface AppNotification {
   id: string; type: NotifType; userId: string; userName: string;
   title: string; message: string; timestamp: string; read: boolean;
   referenceId: string;
+}
+
+interface AccomplishmentLog {
+  id: string; userId: string; userName: string; date: string;
+  activity: string; deliverable: string; photo: string; createdAt: string;
+}
+
+interface ChatMessage {
+  id: string; senderId: string; senderName: string; senderPicture?: string;
+  message: string; createdAt: string;
+}
+
+/** Returns all ISO dates (inclusive) between `from` and `to`, in order. */
+function dateRangeArray(from: string, to: string): string[] {
+  const out: string[] = [];
+  const start = new Date(from + "T00:00:00");
+  const end = new Date(to + "T00:00:00");
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return [from];
+  const cur = new Date(start);
+  while (cur <= end) {
+    out.push(cur.toISOString().slice(0, 10));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -186,10 +211,10 @@ function smartGenerateDailyTasks(weekly: WeeklyTask, config: DomainConfig, poolO
 const TODAY = todayISO();
 const INITIAL_USERS: UserProfile[] = [
   { id: "u-admin", username: "admin", lastName: "Reyes", firstName: "Maria", middleName: "Santos", suffix: "", nickname: "Mari", designation: "Division Head", position: "Chief Information Officer", natureOfWork: "Information Systems Management", mobilePhone: "09171234567", email: "admin@litm.gov.ph", password: "admin123", isAdmin: true, profilePicture: "" },
+  { id: "u-admin2", username: "admin2", lastName: "Bautista", firstName: "Ramon", middleName: "Garcia", suffix: "", nickname: "Ramon", designation: "Assistant Division Head", position: "Deputy CIO", natureOfWork: "Information Systems Management", mobilePhone: "09171234568", email: "admin2@litm.gov.ph", password: "admin123", isAdmin: true, profilePicture: "" },
   { id: "u-001", username: "jcruz", lastName: "Cruz", firstName: "Jose", middleName: "Manuel", suffix: "Jr.", nickname: "Jojo", designation: "IT Specialist II", position: "Systems Analyst", natureOfWork: "Systems Development and Analysis", mobilePhone: "09281234567", email: "jose.cruz@litm.gov.ph", password: "staff123", isAdmin: false, profilePicture: "" },
   { id: "u-002", username: "adelacruz", lastName: "Dela Cruz", firstName: "Ana", middleName: "Bautista", suffix: "", nickname: "Annie", designation: "IT Specialist I", position: "Network Administrator", natureOfWork: "Network and Infrastructure Support", mobilePhone: "09301234567", email: "ana.delacruz@litm.gov.ph", password: "staff123", isAdmin: false, profilePicture: "" },
   { id: "u-003", username: "msantos", lastName: "Santos", firstName: "Mark", middleName: "David", suffix: "", nickname: "Marky", designation: "IT Officer I", position: "Database Administrator", natureOfWork: "Database Management", mobilePhone: "09191234567", email: "mark.santos@litm.gov.ph", password: "staff123", isAdmin: false, profilePicture: "" },
-  { id: "u-test", username: "testuser", lastName: "Dela Vega", firstName: "Juan", middleName: "Sta. Maria", suffix: "", nickname: "Juan", designation: "IT Assistant", position: "IT Support Specialist", natureOfWork: "Technical Support Services", mobilePhone: "09991234567", email: "test.user@litm.gov.ph", password: "test123", isAdmin: false, profilePicture: "" },
 ];
 function buildSeedTasks(): TasksData {
   const now = new Date(); const m = now.getMonth(); const y = now.getFullYear(); const t: TasksData = {};
@@ -202,7 +227,7 @@ function buildSeedTasks(): TasksData {
   const u3mt: MonthlyTask = { id: seedId("u-003","mt",0), title: "Database Optimization & Migration", deliverables: [{ id: seedId("u-003","mt",0,"d",0), title: "Migration Plan Document", status: "done" }, { id: seedId("u-003","mt",0,"d",1), title: "Post-Migration Performance Report", status: "pending" }], month: m, year: y, status: "in-progress", weeklyTasks: [] };
   u3mt.weeklyTasks = smartGenerateWeeklyTasks(u3mt);
   t["u-003"] = [u3mt];
-  t["u-admin"] = []; t["u-test"] = [];
+  t["u-admin"] = []; t["u-admin2"] = [];
   return t;
 }
 
@@ -281,12 +306,7 @@ function SignInPage({ users, onSignIn, onGoRegister }: { users: UserProfile[]; o
               <button type="button" onClick={onGoRegister} className="w-full py-2.5 rounded-xl border border-border text-foreground text-sm font-medium hover:bg-muted transition-all">Create New Account</button>
             </div>
           </form>
-          <div className="mt-5 p-3.5 rounded-xl bg-muted/60 border border-border space-y-1.5">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Demo Accounts</p>
-            <div className="flex justify-between text-xs"><span className="text-muted-foreground">Admin</span><span className="font-mono">admin / admin123</span></div>
-            <div className="flex justify-between text-xs"><span className="text-muted-foreground">Staff</span><span className="font-mono">jcruz / staff123</span></div>
-            <div className="flex justify-between text-xs"><span className="font-semibold" style={{color:"#b45309"}}>★ Test</span><span className="font-mono">testuser / test123</span></div>
-          </div>
+
         </div>
       </div>
     </div>
@@ -349,6 +369,7 @@ function TopNav({ user, page, setPage, onSignOut, unreadCount }: { user: UserPro
     { key:"profile", label:"Profile", icon:<User size={14}/> },
     { key:"tasks", label:"My Tasks", icon:<CheckSquare size={14}/> },
     { key:"accomplishments", label:"My Accomplishments", icon:<Award size={14}/> },
+    { key:"chat", label:"Chat", icon:<MessageCircle size={14}/> },
     { key:"notifications", label:"Notifications", icon:<Bell size={14}/> },
   ];
   if (user.isAdmin) { navItems.push({ key:"monitoring", label:"LITM Monitoring", icon:<Users size={14}/> }); navItems.push({ key:"history", label:"History", icon:<ClipboardCheck size={14}/> }); }
@@ -393,9 +414,22 @@ function TopNav({ user, page, setPage, onSignOut, unreadCount }: { user: UserPro
 // ─────────────────────────────────────────────────────────────
 // PASS SLIP MODAL
 // ─────────────────────────────────────────────────────────────
+const MAX_PASS_SLIP_MINUTES = 3 * 60;
+function passSlipDurationMinutes(timeFrom: string, timeTo: string): number {
+  if (!timeFrom || !timeTo) return 0;
+  const [fh, fm] = timeFrom.split(":").map(Number);
+  const [th, tm] = timeTo.split(":").map(Number);
+  if ([fh,fm,th,tm].some(n => Number.isNaN(n))) return 0;
+  return (th * 60 + tm) - (fh * 60 + fm);
+}
 function PassSlipModal({ date, user, onSubmit, onClose }: { date: string; user: UserProfile; onSubmit: (req: LeaveRequest) => void; onClose: () => void }) {
-  const [timeFrom, setTimeFrom] = useState("08:00"); const [timeTo, setTimeTo] = useState("12:00"); const [reason, setReason] = useState("");
+  const [timeFrom, setTimeFrom] = useState("08:00"); const [timeTo, setTimeTo] = useState("11:00"); const [reason, setReason] = useState("");
+  const duration = passSlipDurationMinutes(timeFrom, timeTo);
+  const isValidRange = duration > 0;
+  const exceedsMax = duration > MAX_PASS_SLIP_MINUTES;
+  const canSubmit = isValidRange && !exceedsMax;
   function handleSubmit() {
+    if (!canSubmit) return;
     const req: LeaveRequest = { id:genId(), userId:user.id, userName:getFullName(user), type:"pass_slip", date, timeFrom, timeTo, reason, submittedAt:nowISO(), status:"pending" };
     onSubmit(req);
   }
@@ -404,12 +438,15 @@ function PassSlipModal({ date, user, onSubmit, onClose }: { date: string; user: 
       <div className="space-y-4">
         <div className="p-3 rounded-xl bg-secondary border border-accent/30 text-sm"><span className="font-semibold">Date:</span> {formatDateWithDay(date)}</div>
         <div className="grid grid-cols-2 gap-4">
-          <div><label className="block text-sm font-medium mb-1">Time From</label><input type="time" value={timeFrom} onChange={e=>setTimeFrom(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all" /></div>
-          <div><label className="block text-sm font-medium mb-1">Time To</label><input type="time" value={timeTo} onChange={e=>setTimeTo(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all" /></div>
+          <div><label className="block text-sm font-medium mb-1">Time From <span className="text-red-500">*</span></label><input type="time" value={timeFrom} onChange={e=>setTimeFrom(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all" /></div>
+          <div><label className="block text-sm font-medium mb-1">Time To <span className="text-red-500">*</span></label><input type="time" value={timeTo} onChange={e=>setTimeTo(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all" /></div>
         </div>
+        {!isValidRange && <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2"><AlertCircle size={13} className="flex-shrink-0"/><span>"Time To" must be later than "Time From".</span></div>}
+        {isValidRange && exceedsMax && <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2"><AlertCircle size={13} className="flex-shrink-0"/><span>Pass slip duration cannot exceed 3 hours. You selected {(duration/60).toFixed(1)} hours.</span></div>}
+        {isValidRange && !exceedsMax && <div className="p-2.5 rounded-xl bg-green-50 border border-green-200 text-xs text-green-700 flex items-center gap-2"><CheckCircle2 size={13} className="flex-shrink-0"/><span>Duration: {Math.floor(duration/60)}h {duration%60}m (max 3 hours)</span></div>}
         <div><label className="block text-sm font-medium mb-1">Reason <span className="text-muted-foreground text-xs">(Optional)</span></label><textarea value={reason} onChange={e=>setReason(e.target.value)} rows={3} placeholder="Brief reason for pass slip..." className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all resize-none" /></div>
-        <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-start gap-2"><AlertCircle size={13} className="flex-shrink-0 mt-0.5"/><span>This pass slip request will be sent to the admin for approval. The calendar will show it as pending until approved.</span></div>
-        <div className="flex gap-3"><button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-all">Cancel</button><button onClick={handleSubmit} className="flex-1 py-2.5 rounded-xl bg-accent text-accent-foreground text-sm font-semibold hover:bg-accent/80 transition-all">Confirm & Submit</button></div>
+        <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-start gap-2"><AlertCircle size={13} className="flex-shrink-0 mt-0.5"/><span>Pass slips are limited to a maximum of 3 hours. This request will be sent to the admin for approval, and the calendar will show it as pending until approved.</span></div>
+        <div className="flex gap-3"><button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-all">Cancel</button><button onClick={handleSubmit} disabled={!canSubmit} className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${canSubmit?"bg-accent text-accent-foreground hover:bg-accent/80":"bg-muted text-muted-foreground cursor-not-allowed"}`}>Confirm & Submit</button></div>
       </div>
     </Modal>
   );
@@ -420,14 +457,26 @@ function PassSlipModal({ date, user, onSubmit, onClose }: { date: string; user: 
 // ─────────────────────────────────────────────────────────────
 function CTOLeaveModal({ date, user, onSubmit, onClose }: { date: string; user: UserProfile; onSubmit: (req: LeaveRequest) => void; onClose: () => void }) {
   const [type, setType] = useState<"cto"|"leave">("cto"); const [reason, setReason] = useState("");
+  const [duration, setDuration] = useState<"full"|"half">("full");
+  const [dayPart, setDayPart] = useState<"AM"|"PM">("AM");
+  const [dateTo, setDateTo] = useState(date);
+
+  const isMultiDay = type === "cto" && duration === "full" && dateTo !== date;
+  const validRange = dateTo >= date;
+
   function handleSubmit() {
-    const req: LeaveRequest = { id:genId(), userId:user.id, userName:getFullName(user), type, date, reason, submittedAt:nowISO(), status:"pending" };
+    if (!validRange) return;
+    const req: LeaveRequest = {
+      id: genId(), userId: user.id, userName: getFullName(user), type, date,
+      dateTo: type === "cto" && duration === "full" ? dateTo : date,
+      dayPart: type === "cto" ? (duration === "half" ? dayPart : "full") : undefined,
+      reason, submittedAt: nowISO(), status: "pending",
+    };
     onSubmit(req);
   }
   return (
     <Modal title="Request CTO / Leave" onClose={onClose}>
       <div className="space-y-4">
-        <div className="p-3 rounded-xl bg-secondary border border-accent/30 text-sm"><span className="font-semibold">Date:</span> {formatDateWithDay(date)}</div>
         <div>
           <label className="block text-sm font-medium mb-2">Request Type</label>
           <div className="grid grid-cols-2 gap-3">
@@ -438,9 +487,48 @@ function CTOLeaveModal({ date, user, onSubmit, onClose }: { date: string; user: 
             ))}
           </div>
         </div>
+
+        {type === "cto" && (
+          <div>
+            <label className="block text-sm font-medium mb-2">Duration</label>
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => setDuration("full")} className={`py-2.5 rounded-xl border-2 text-sm font-semibold transition-all ${duration==="full" ? "border-accent bg-secondary text-foreground" : "border-border hover:border-accent/40"}`}>Full Day</button>
+              <button onClick={() => { setDuration("half"); setDateTo(date); }} className={`py-2.5 rounded-xl border-2 text-sm font-semibold transition-all ${duration==="half" ? "border-accent bg-secondary text-foreground" : "border-border hover:border-accent/40"}`}>Half Day</button>
+            </div>
+          </div>
+        )}
+
+        {type === "cto" && duration === "half" && (
+          <div>
+            <label className="block text-sm font-medium mb-2">Half Day Session</label>
+            <div className="grid grid-cols-2 gap-3">
+              {(["AM","PM"] as const).map(p => (
+                <button key={p} onClick={() => setDayPart(p)} className={`py-2.5 rounded-xl border-2 text-sm font-semibold transition-all ${dayPart===p ? "border-accent bg-secondary text-foreground" : "border-border hover:border-accent/40"}`}>{p === "AM" ? "Morning (AM)" : "Afternoon (PM)"}</button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">Date From</label>
+            <div className="w-full px-3 py-2.5 rounded-xl border border-border bg-muted/40 text-sm">{formatDateWithDay(date)}</div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Date To</label>
+            {type === "cto" && duration === "full" ? (
+              <input type="date" min={date} value={dateTo} onChange={e=>setDateTo(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all" />
+            ) : (
+              <div className="w-full px-3 py-2.5 rounded-xl border border-border bg-muted/40 text-sm text-muted-foreground">Same day</div>
+            )}
+          </div>
+        </div>
+        {!validRange && <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2"><AlertCircle size={13} className="flex-shrink-0"/><span>"Date To" cannot be earlier than "Date From".</span></div>}
+        {isMultiDay && <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-700 flex items-center gap-2"><CalendarIcon size={13} className="flex-shrink-0"/><span>{dateRangeArray(date,dateTo).length} consecutive day(s) requested: {formatDisplay(date)} – {formatDisplay(dateTo)}.</span></div>}
+
         <div><label className="block text-sm font-medium mb-1">Reason <span className="text-muted-foreground text-xs">(Optional)</span></label><textarea value={reason} onChange={e=>setReason(e.target.value)} rows={3} placeholder="Brief reason for your request..." className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all resize-none" /></div>
-        <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-start gap-2"><AlertCircle size={13} className="flex-shrink-0 mt-0.5"/><span>This {type==="cto"?"CTO":"leave"} request will be forwarded to the admin for review and approval.</span></div>
-        <div className="flex gap-3"><button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-all">Cancel</button><button onClick={handleSubmit} className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all">Confirm & Submit</button></div>
+        <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-start gap-2"><AlertCircle size={13} className="flex-shrink-0 mt-0.5"/><span>This {type==="cto"?"CTO":"leave"} request will be forwarded to the admin for review and approval. {type==="cto"&&"Multi-day CTO must be consecutive (sequential) dates."}</span></div>
+        <div className="flex gap-3"><button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-all">Cancel</button><button onClick={handleSubmit} disabled={!validRange} className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${validRange?"bg-primary text-primary-foreground hover:bg-primary/90":"bg-muted text-muted-foreground cursor-not-allowed"}`}>Confirm & Submit</button></div>
       </div>
     </Modal>
   );
@@ -507,10 +595,12 @@ function EvidenceUploadModal({ task, onSubmit, onClose }: { task: DailyTask; onS
 // ─────────────────────────────────────────────────────────────
 // MONTH CALENDAR — enhanced indicators + click popup with pass slip/CTO
 // ─────────────────────────────────────────────────────────────
-function MonthCalendar({ allDailyTasks, leaveRequests, allUsers, currentUser, onSubmitLeave }: {
+function MonthCalendar({ allDailyTasks, leaveRequests, allUsers, currentUser, onSubmitLeave, accomplishmentLogs, onAddAccomplishment }: {
   allDailyTasks: DailyTask[]; leaveRequests: LeaveRequest[];
   allUsers: UserProfile[]; currentUser: UserProfile;
   onSubmitLeave: (req: LeaveRequest, notif: AppNotification) => void;
+  accomplishmentLogs: AccomplishmentLog[];
+  onAddAccomplishment: (log: AccomplishmentLog) => void;
 }) {
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
@@ -519,6 +609,13 @@ function MonthCalendar({ allDailyTasks, leaveRequests, allUsers, currentUser, on
   const [mode, setMode] = useState<"tasks"|"leave">("tasks");
   const [showPassSlip, setShowPassSlip] = useState(false);
   const [showCTO, setShowCTO] = useState(false);
+  const [showAddAccomplishment, setShowAddAccomplishment] = useState(false);
+
+  const ownAccomplishmentsByDate: Record<string, AccomplishmentLog[]> = {};
+  accomplishmentLogs.filter(l => l.userId === currentUser.id).forEach(l => {
+    if (!ownAccomplishmentsByDate[l.date]) ownAccomplishmentsByDate[l.date] = [];
+    ownAccomplishmentsByDate[l.date].push(l);
+  });
 
   const firstDay = getFirstDay(viewYear, viewMonth);
   const daysInMonth = getDaysInMonth(viewYear, viewMonth);
@@ -541,15 +638,19 @@ function MonthCalendar({ allDailyTasks, leaveRequests, allUsers, currentUser, on
 
   const leaveByDate: Record<string,LeaveRequest[]> = {};
   visibleLeave.forEach(r => {
-    if (!leaveByDate[r.date]) leaveByDate[r.date] = [];
-    leaveByDate[r.date].push(r);
+    dateRangeArray(r.date, r.dateTo ?? r.date).forEach(d => {
+      if (!leaveByDate[d]) leaveByDate[d] = [];
+      leaveByDate[d].push(r);
+    });
   });
 
   // Own leave for task-mode dots
   const ownLeaveByDate: Record<string,LeaveRequest[]> = {};
   leaveRequests.filter(r => r.userId === currentUser.id).forEach(r => {
-    if (!ownLeaveByDate[r.date]) ownLeaveByDate[r.date] = [];
-    ownLeaveByDate[r.date].push(r);
+    dateRangeArray(r.date, r.dateTo ?? r.date).forEach(d => {
+      if (!ownLeaveByDate[d]) ownLeaveByDate[d] = [];
+      ownLeaveByDate[d].push(r);
+    });
   });
 
   const cells: (number|null)[] = [...Array(firstDay).fill(null), ...Array.from({length:daysInMonth},(_,i)=>i+1)];
@@ -559,9 +660,21 @@ function MonthCalendar({ allDailyTasks, leaveRequests, allUsers, currentUser, on
 
   const selectedTasks = selectedDate ? (tasksByDate[selectedDate]??[]) : [];
   const selectedLeave = selectedDate ? (leaveByDate[selectedDate]??[]) : [];
+  const selectedAccomplishments = selectedDate ? (ownAccomplishmentsByDate[selectedDate]??[]) : [];
+
+  function handleAccomplishmentSubmit(log: AccomplishmentLog) {
+    onAddAccomplishment(log);
+    setShowAddAccomplishment(false);
+  }
 
   function handleLeaveSubmit(req: LeaveRequest) {
-    const notif: AppNotification = { id:genId(), type:"leave_request", userId:currentUser.id, userName:getFullName(currentUser), title:`${req.type==="pass_slip"?"Pass Slip":req.type==="cto"?"CTO":"Leave"} Request`, message:`${getFullName(currentUser)} submitted a ${req.type==="pass_slip"?"pass slip":req.type==="cto"?"CTO":"leave"} request for ${formatDisplay(req.date)}${req.type==="pass_slip"?` (${req.timeFrom} – ${req.timeTo})`:""}`, timestamp:nowISO(), read:false, referenceId:req.id };
+    const dateDesc = req.type==="cto" && req.dateTo && req.dateTo!==req.date
+      ? `${formatDisplay(req.date)} – ${formatDisplay(req.dateTo)}`
+      : formatDisplay(req.date);
+    const extra = req.type==="pass_slip" ? ` (${req.timeFrom} – ${req.timeTo})`
+      : req.type==="cto" && req.dayPart && req.dayPart!=="full" ? ` (${req.dayPart} half-day)`
+      : "";
+    const notif: AppNotification = { id:genId(), type:"leave_request", userId:currentUser.id, userName:getFullName(currentUser), title:`${req.type==="pass_slip"?"Pass Slip":req.type==="cto"?"CTO":"Leave"} Request`, message:`${getFullName(currentUser)} submitted a ${req.type==="pass_slip"?"pass slip":req.type==="cto"?"CTO":"leave"} request for ${dateDesc}${extra}`, timestamp:nowISO(), read:false, referenceId:req.id };
     onSubmitLeave(req, notif);
     setShowPassSlip(false); setShowCTO(false); setSelectedDate(null);
   }
@@ -681,7 +794,7 @@ function MonthCalendar({ allDailyTasks, leaveRequests, allUsers, currentUser, on
       </div>
 
       {/* Task mode detail modal */}
-      {mode === "tasks" && selectedDate && !showPassSlip && !showCTO && (
+      {mode === "tasks" && selectedDate && !showPassSlip && !showCTO && !showAddAccomplishment && (
         <Modal title={formatDateWithDay(selectedDate)} onClose={()=>setSelectedDate(null)} wide>
           <div className="space-y-4">
             {selectedTasks.length>0 ? (
@@ -698,9 +811,30 @@ function MonthCalendar({ allDailyTasks, leaveRequests, allUsers, currentUser, on
             ) : (
               <div className="py-4 text-center text-sm text-muted-foreground">No tasks for this date.</div>
             )}
-            <div className="border-t border-border pt-3 grid grid-cols-2 gap-3">
-              <button onClick={()=>setShowPassSlip(true)} className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-semibold hover:bg-orange-600 transition-all"><FileText size={14}/>Pass Slip</button>
-              <button onClick={()=>setShowCTO(true)} className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 transition-all"><Plane size={14}/>Request CTO/Leave</button>
+
+            {selectedAccomplishments.length>0 && (
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">{selectedAccomplishments.length} Logged Accomplishment{selectedAccomplishments.length>1?"s":""}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {selectedAccomplishments.map(l => (
+                    <div key={l.id} className="rounded-xl border border-teal-200 bg-teal-50 p-3 flex gap-2.5">
+                      {l.photo && <img src={l.photo} alt="" className="w-14 h-14 rounded-lg object-cover flex-shrink-0 border border-teal-200"/>}
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-foreground truncate">{l.activity}</p>
+                        <p className="text-xs text-muted-foreground truncate">{l.deliverable}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="border-t border-border pt-3 space-y-3">
+              <button onClick={()=>setShowAddAccomplishment(true)} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-teal-600 text-white text-sm font-semibold hover:bg-teal-700 transition-all"><Sparkles size={14}/>Log Accomplishment</button>
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={()=>setShowPassSlip(true)} className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-orange-500 text-white text-sm font-semibold hover:bg-orange-600 transition-all"><FileText size={14}/>Pass Slip</button>
+                <button onClick={()=>setShowCTO(true)} className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 transition-all"><Plane size={14}/>Request CTO/Leave</button>
+              </div>
             </div>
           </div>
         </Modal>
@@ -735,6 +869,8 @@ function MonthCalendar({ allDailyTasks, leaveRequests, allUsers, currentUser, on
                         <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${r.type==="pass_slip"?"bg-orange-200 text-orange-800":r.type==="cto"?"bg-violet-200 text-violet-800":"bg-purple-200 text-purple-800"}`}>{getLeaveTypeLabel(r.type)}</span>
                       </div>
                       {r.type==="pass_slip" && r.timeFrom && <p className="text-xs text-foreground/80"><span className="font-semibold">Time:</span> {r.timeFrom} – {r.timeTo}</p>}
+                      {r.type==="cto" && r.dayPart && r.dayPart!=="full" && <p className="text-xs text-foreground/80"><span className="font-semibold">Session:</span> Half Day ({r.dayPart === "AM" ? "Morning" : "Afternoon"})</p>}
+                      {r.type==="cto" && r.dateTo && r.dateTo!==r.date && <p className="text-xs text-foreground/80"><span className="font-semibold">Date Range:</span> {formatDisplay(r.date)} – {formatDisplay(r.dateTo)}</p>}
                       {r.reason && <p className="text-xs text-foreground/80"><span className="font-semibold">Reason:</span> {r.reason}</p>}
                       <p className="text-xs text-muted-foreground">Submitted: {formatTimestamp(r.submittedAt)}</p>
                       {r.adminNote && <p className="text-xs text-red-600 font-medium">Admin note: {r.adminNote}</p>}
@@ -755,16 +891,72 @@ function MonthCalendar({ allDailyTasks, leaveRequests, allUsers, currentUser, on
 
       {showPassSlip && selectedDate && <PassSlipModal date={selectedDate} user={currentUser} onSubmit={handleLeaveSubmit} onClose={()=>setShowPassSlip(false)} />}
       {showCTO && selectedDate && <CTOLeaveModal date={selectedDate} user={currentUser} onSubmit={handleLeaveSubmit} onClose={()=>setShowCTO(false)} />}
+      {showAddAccomplishment && selectedDate && <AddAccomplishmentModal date={selectedDate} user={currentUser} onSubmit={handleAccomplishmentSubmit} onClose={()=>setShowAddAccomplishment(false)} />}
     </>
   );
 }
 
 // ─────────────────────────────────────────────────────────────
-function HomePage({ user, tasks, leaveRequests, allUsers, onSubmitLeave, onEvidenceSubmit }: {
+// ADD ACCOMPLISHMENT MODAL — quick log from calendar date click
+// ─────────────────────────────────────────────────────────────
+function AddAccomplishmentModal({ date, user, onSubmit, onClose }: { date: string; user: UserProfile; onSubmit: (log: AccomplishmentLog) => void; onClose: () => void }) {
+  const [activity, setActivity] = useState("");
+  const [deliverable, setDeliverable] = useState("");
+  const [photo, setPhoto] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+  const canSubmit = activity.trim().length>0 && deliverable.trim().length>0 && photo.length>0;
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => setPhoto(ev.target?.result as string);
+    reader.readAsDataURL(file);
+  }
+
+  function handleSubmit() {
+    if (!canSubmit) return;
+    const log: AccomplishmentLog = { id:genId(), userId:user.id, userName:getFullName(user), date, activity:activity.trim(), deliverable:deliverable.trim(), photo, createdAt:nowISO() };
+    onSubmit(log);
+  }
+
+  return (
+    <Modal title="Log Accomplishment" onClose={onClose}>
+      <div className="space-y-4">
+        <div className="p-3 rounded-xl bg-secondary border border-accent/30 text-sm"><span className="font-semibold">Date:</span> {formatDateWithDay(date)}</div>
+        <FormField label="Activity Name" value={activity} onChange={setActivity} placeholder="e.g., Server rack cabling cleanup" />
+        <FormField label="Deliverable" value={deliverable} onChange={setDeliverable} placeholder="e.g., Cabling completion photo report" />
+        <div>
+          <p className="text-sm font-medium text-foreground mb-2">Photo Documentation <span className="text-red-500">*</span></p>
+          {photo ? (
+            <div className="relative rounded-xl overflow-hidden border border-border group w-full h-40">
+              <img src={photo} alt="documentation" className="w-full h-full object-cover" />
+              <button onClick={()=>setPhoto("")} className="absolute top-2 right-2 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600"><X size={12}/></button>
+            </div>
+          ) : (
+            <button onClick={()=>fileRef.current?.click()} className="w-full border-2 border-dashed border-accent/40 rounded-xl py-6 flex flex-col items-center gap-2 hover:border-accent hover:bg-secondary/30 transition-all">
+              <Camera size={22} className="text-accent" />
+              <span className="text-sm font-medium text-accent">Click to upload a photo</span>
+              <span className="text-xs text-muted-foreground">PNG or JPG</span>
+            </button>
+          )}
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+        </div>
+        <div className="p-3 rounded-xl bg-teal-50 border border-teal-200 text-xs text-teal-800 flex items-start gap-2"><AlertCircle size={13} className="flex-shrink-0 mt-0.5"/><span>This logs a quick accomplishment directly against the selected date — separate from your scheduled tasks.</span></div>
+        <div className="flex gap-3"><button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-all">Cancel</button><button onClick={handleSubmit} disabled={!canSubmit} className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${canSubmit?"bg-teal-600 text-white hover:bg-teal-700":"bg-muted text-muted-foreground cursor-not-allowed"}`}>Save Accomplishment</button></div>
+      </div>
+    </Modal>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+function HomePage({ user, tasks, leaveRequests, allUsers, onSubmitLeave, onEvidenceSubmit, accomplishmentLogs, onAddAccomplishment }: {
   user: UserProfile; tasks: MonthlyTask[]; leaveRequests: LeaveRequest[];
   allUsers: UserProfile[];
   onSubmitLeave: (req: LeaveRequest, notif: AppNotification) => void;
   onEvidenceSubmit: (dailyId: string, images: string[], submission: Submission, notif: AppNotification) => void;
+  accomplishmentLogs: AccomplishmentLog[];
+  onAddAccomplishment: (log: AccomplishmentLog) => void;
 }) {
   const [expandedRow, setExpandedRow] = useState<string|null>(null);
   const [evidenceTask, setEvidenceTask] = useState<{dt:DailyTask;mtTitle:string;mtId:string;wtId:string}|null>(null);
@@ -791,7 +983,7 @@ function HomePage({ user, tasks, leaveRequests, allUsers, onSubmitLeave, onEvide
   return (
     <div className="space-y-6">
       <div><h1 className="text-xl font-bold text-foreground">{greeting}, {user.nickname||user.firstName}!</h1><p className="text-sm text-muted-foreground mt-0.5">{formatDisplay(TODAY)} · {user.position}</p></div>
-      <MonthCalendar allDailyTasks={allDaily} leaveRequests={leaveRequests} allUsers={allUsers} currentUser={user} onSubmitLeave={onSubmitLeave} />
+      <MonthCalendar allDailyTasks={allDaily} leaveRequests={leaveRequests} allUsers={allUsers} currentUser={user} onSubmitLeave={onSubmitLeave} accomplishmentLogs={accomplishmentLogs} onAddAccomplishment={onAddAccomplishment} />
 
       {/* Today's Tasks — checklist style */}
       <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
@@ -1237,16 +1429,17 @@ function MyTasksPage({ tasks, onUpdateTasks }: { tasks: MonthlyTask[]; onUpdateT
 // ─────────────────────────────────────────────────────────────
 // MY ACCOMPLISHMENTS — selectable report generation
 // ─────────────────────────────────────────────────────────────
-function MyAccomplishmentsPage({ tasks, currentUser }: { tasks: MonthlyTask[]; currentUser: UserProfile }) {
+function MyAccomplishmentsPage({ tasks, currentUser, accomplishmentLogs }: { tasks: MonthlyTask[]; currentUser: UserProfile; accomplishmentLogs: AccomplishmentLog[] }) {
   const now = new Date();
   const [showReport, setShowReport] = useState(false);
-  const [activeTab, setActiveTab] = useState<"monthly"|"weekly"|"daily">("monthly");
+  const [activeTab, setActiveTab] = useState<"monthly"|"weekly"|"daily"|"logged">("monthly");
   const daysInMonth = getDaysInMonth(now.getFullYear(),now.getMonth());
   const currentMT = tasks.filter(t=>t.month===now.getMonth()&&t.year===now.getFullYear());
   const finishedMonthly = currentMT.filter(t=>t.status==="finished");
   const finishedWeekly = currentMT.flatMap(mt=>mt.weeklyTasks.filter(wt=>wt.status==="finished"));
   const approvedDaily = currentMT.flatMap(mt=>mt.weeklyTasks.flatMap(wt=>wt.dailyTasks.filter(dt=>dt.status==="approved"||dt.status==="finished")));
-  const tabs=[{key:"monthly" as const,label:"Monthly",count:finishedMonthly.length},{key:"weekly" as const,label:"Weekly",count:finishedWeekly.length},{key:"daily" as const,label:"Daily (Approved)",count:approvedDaily.length}];
+  const myLogs = accomplishmentLogs.filter(l=>l.userId===currentUser.id).sort((a,b)=>new Date(b.date).getTime()-new Date(a.date).getTime());
+  const tabs=[{key:"monthly" as const,label:"Monthly",count:finishedMonthly.length},{key:"weekly" as const,label:"Weekly",count:finishedWeekly.length},{key:"daily" as const,label:"Daily (Approved)",count:approvedDaily.length},{key:"logged" as const,label:"Logged",count:myLogs.length}];
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -1266,6 +1459,7 @@ function MyAccomplishmentsPage({ tasks, currentUser }: { tasks: MonthlyTask[]; c
           {activeTab==="monthly"&&<div className="space-y-3">{finishedMonthly.length===0?<div className="py-8 text-center text-muted-foreground text-sm">No finished monthly tasks yet.</div>:finishedMonthly.map(mt=><div key={mt.id} className="p-4 rounded-xl border border-green-200 bg-green-50 flex items-center gap-3"><CheckCircle2 size={18} className="text-green-600 flex-shrink-0"/><div className="flex-1 min-w-0"><p className="text-sm font-semibold text-foreground">{mt.title}</p><p className="text-xs text-muted-foreground">{mt.deliverables.length} deliverables</p></div><StatusBadge status="finished"/></div>)}</div>}
           {activeTab==="weekly"&&<div className="space-y-3">{finishedWeekly.length===0?<div className="py-8 text-center text-muted-foreground text-sm">No finished weekly tasks yet.</div>:finishedWeekly.map(wt=><div key={wt.id} className="p-4 rounded-xl border border-violet-200 bg-violet-50 flex items-center gap-3"><CheckCircle2 size={18} className="text-violet-600 flex-shrink-0"/><div className="flex-1 min-w-0"><p className="text-sm font-semibold text-foreground">{cleanTitle(wt.title)}</p><p className="text-xs text-muted-foreground">Week {wt.weekNumber}</p></div><StatusBadge status="finished"/></div>)}</div>}
           {activeTab==="daily"&&<div className="space-y-2">{approvedDaily.length===0?<div className="py-8 text-center text-muted-foreground text-sm">No approved daily tasks yet. Submit evidence and wait for admin approval.</div>:approvedDaily.map(dt=><div key={dt.id} className="p-3.5 rounded-xl border border-green-200 bg-green-50 flex items-start gap-3"><CheckCircle2 size={16} className="text-green-600 flex-shrink-0 mt-0.5"/><div className="flex-1 min-w-0"><p className="text-sm font-semibold text-foreground truncate">{cleanTitle(dt.title)}</p><p className="text-xs text-muted-foreground"><span className="font-medium">Deliverable:</span> {dt.deliverable}</p><p className="text-xs text-muted-foreground">{formatDisplay(dt.date)}</p></div><StatusBadge status={dt.status}/></div>)}</div>}
+          {activeTab==="logged"&&<div className="grid grid-cols-2 gap-3">{myLogs.length===0?<div className="col-span-2 py-8 text-center text-muted-foreground text-sm">No logged accomplishments yet. Click a date on the calendar to add one.</div>:myLogs.map(l=><div key={l.id} className="rounded-xl border border-teal-200 bg-teal-50 overflow-hidden"><img src={l.photo} alt="" className="w-full h-32 object-cover"/><div className="p-3"><p className="text-sm font-semibold text-foreground truncate">{l.activity}</p><p className="text-xs text-muted-foreground truncate">{l.deliverable}</p><p className="text-xs text-muted-foreground mt-1">{formatDisplay(l.date)}</p></div></div>)}</div>}
         </div>
       </div>
       {showReport&&<Modal title="Generate Accomplishment Report" onClose={()=>setShowReport(false)} wide><ReportModal currentUser={currentUser} approvedDaily={approvedDaily} month={now.getMonth()} year={now.getFullYear()} daysInMonth={daysInMonth} onClose={()=>setShowReport(false)}/></Modal>}
@@ -1493,8 +1687,9 @@ function AdminNotificationsPage({ notifications, submissions, leaveRequests, all
               return(
                 <div className="p-3.5 rounded-xl border border-border bg-muted/20 space-y-2">
                   <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Request Type</p><p className="text-base font-semibold text-foreground capitalize">{req.type==="pass_slip"?"Pass Slip":req.type==="cto"?"Compensatory Time-off (CTO)":"Leave"}</p></div>
-                  <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Date</p><p className="text-sm text-foreground">{formatDateWithDay(req.date)}</p></div>
+                  <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Date{req.type==="cto"&&req.dateTo&&req.dateTo!==req.date?" Range":""}</p><p className="text-sm text-foreground">{req.type==="cto"&&req.dateTo&&req.dateTo!==req.date?`${formatDateWithDay(req.date)} – ${formatDateWithDay(req.dateTo)}`:formatDateWithDay(req.date)}</p></div>
                   {req.type==="pass_slip"&&<div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Time Range</p><p className="text-sm font-mono text-foreground">{req.timeFrom} – {req.timeTo}</p></div>}
+                  {req.type==="cto"&&req.dayPart&&req.dayPart!=="full"&&<div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Session</p><p className="text-sm text-foreground">Half Day ({req.dayPart==="AM"?"Morning":"Afternoon"})</p></div>}
                   {req.reason&&<div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Reason</p><p className="text-sm text-foreground">{req.reason}</p></div>}
                   <div><p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Submitted</p><p className="text-sm font-mono text-foreground">{formatTimestamp(req.submittedAt)}</p></div>
                 </div>
@@ -1810,8 +2005,9 @@ function MonitoringPage({ users, allTasks, leaveRequests }: { users: UserProfile
                                   <span className="text-sm font-semibold text-foreground capitalize">{r.type==="pass_slip"?"Pass Slip":r.type==="cto"?"CTO":"Leave"}</span>
                                   <StatusBadge status={r.status}/>
                                 </div>
-                                <p className="text-xs text-muted-foreground">{formatDateWithDay(r.date)}</p>
+                                <p className="text-xs text-muted-foreground">{r.type==="cto"&&r.dateTo&&r.dateTo!==r.date?`${formatDateWithDay(r.date)} – ${formatDateWithDay(r.dateTo)}`:formatDateWithDay(r.date)}</p>
                                 {r.type==="pass_slip"&&<p className="text-xs text-muted-foreground">Time: {r.timeFrom} – {r.timeTo}</p>}
+                                {r.type==="cto"&&r.dayPart&&r.dayPart!=="full"&&<p className="text-xs text-muted-foreground">Half Day ({r.dayPart==="AM"?"Morning":"Afternoon"})</p>}
                                 {r.reason&&<p className="text-xs text-muted-foreground">Reason: {r.reason}</p>}
                                 <p className="text-xs text-muted-foreground">Submitted: {formatTimestamp(r.submittedAt)}</p>
                               </div>
@@ -1826,6 +2022,123 @@ function MonitoringPage({ users, allTasks, leaveRequests }: { users: UserProfile
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// CHAT PAGE — Messenger-style group chatroom for staff
+// ─────────────────────────────────────────────────────────────
+function ChatPage({ currentUser, allUsers }: { currentUser: UserProfile; allUsers: UserProfile[] }) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [draft, setDraft] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  async function loadMessages() {
+    try {
+      const rows = await getAll<Record<string, unknown>>(TABLES.CHAT_MESSAGES);
+      const msgs = rows.map(rowToChatMessage).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      setMessages(msgs);
+    } catch (err) {
+      console.error("Failed to load chat messages:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadMessages();
+    const unsub = subscribeToTable(TABLES.CHAT_MESSAGES, loadMessages);
+    const interval = setInterval(loadMessages, 4000);
+    return () => { unsub(); clearInterval(interval); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages.length]);
+
+  async function handleSend() {
+    const text = draft.trim();
+    if (!text || sending) return;
+    setSending(true);
+    const msg: ChatMessage = {
+      id: genId(), senderId: currentUser.id, senderName: getFullName(currentUser),
+      senderPicture: currentUser.profilePicture || undefined,
+      message: text, createdAt: nowISO(),
+    };
+    setMessages(prev => [...prev, msg]);
+    setDraft("");
+    try {
+      await insertRecord(TABLES.CHAT_MESSAGES, chatMessageToRow(msg));
+    } catch (err) {
+      console.error("Failed to send chat message:", err);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function initials(name: string) {
+    const parts = name.trim().split(/\s+/);
+    return ((parts[0]?.[0] ?? "") + (parts[parts.length - 1]?.[0] ?? "")).toUpperCase();
+  }
+
+  return (
+    <div className="space-y-4">
+      <div><h1 className="text-xl font-bold text-foreground flex items-center gap-2"><MessageCircle size={20} className="text-accent"/>LITM Staff Chat</h1><p className="text-sm text-muted-foreground mt-0.5">A shared chatroom for all LITM staff and admins.</p></div>
+
+      <div className="bg-card rounded-2xl border border-border shadow-sm flex flex-col overflow-hidden" style={{ height: "70vh" }}>
+        <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-muted/20">
+          {loading ? (
+            <div className="h-full flex items-center justify-center text-sm text-muted-foreground">Loading messages…</div>
+          ) : messages.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-center gap-2 text-muted-foreground">
+              <MessageCircle size={28} className="opacity-40"/>
+              <p className="text-sm">No messages yet. Say hello to your team!</p>
+            </div>
+          ) : (
+            messages.map((m, i) => {
+              const isMe = m.senderId === currentUser.id;
+              const prev = messages[i-1];
+              const showHeader = !prev || prev.senderId !== m.senderId || (new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime()) > 5*60*1000;
+              const sender = allUsers.find(u => u.id === m.senderId);
+              return (
+                <div key={m.id} className={`flex items-end gap-2 ${isMe ? "justify-end" : "justify-start"}`}>
+                  {!isMe && (
+                    <div className="w-7 h-7 rounded-full bg-primary flex-shrink-0 overflow-hidden flex items-center justify-center">
+                      {sender?.profilePicture ? <img src={sender.profilePicture} alt="" className="w-full h-full object-cover"/> : <span className="text-white text-[10px] font-bold">{initials(m.senderName)}</span>}
+                    </div>
+                  )}
+                  <div className={`max-w-[70%] ${isMe ? "items-end" : "items-start"} flex flex-col`}>
+                    {showHeader && !isMe && <span className="text-[11px] font-semibold text-muted-foreground mb-0.5 px-1">{m.senderName}</span>}
+                    <div className={`px-3.5 py-2 rounded-2xl text-sm break-words whitespace-pre-wrap ${isMe ? "bg-accent text-accent-foreground rounded-br-sm" : "bg-white border border-border text-foreground rounded-bl-sm"}`}>
+                      {m.message}
+                    </div>
+                    <span className="text-[10px] text-muted-foreground mt-0.5 px-1">{formatTimestamp(m.createdAt)}</span>
+                  </div>
+                </div>
+              );
+            })
+          )}
+          <div ref={bottomRef}/>
+        </div>
+        <div className="border-t border-border p-3 flex items-end gap-2 bg-card">
+          <textarea
+            value={draft}
+            onChange={e=>setDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+            rows={1}
+            placeholder="Type a message…"
+            className="flex-1 resize-none px-3.5 py-2.5 rounded-2xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all max-h-28"
+          />
+          <button onClick={handleSend} disabled={!draft.trim() || sending} className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-all ${draft.trim() ? "bg-accent text-accent-foreground hover:bg-accent/80" : "bg-muted text-muted-foreground cursor-not-allowed"}`}>
+            <Send size={16}/>
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1885,6 +2198,8 @@ function rowToLeaveRequest(r: Record<string, unknown>): LeaveRequest {
   return {
     id: String(r.id), userId: String(r.user_id), userName: String(r.user_name),
     type: r.type as LeaveType, date: String(r.date),
+    dateTo: (r.date_to as string | null) ?? undefined,
+    dayPart: (r.day_part as DayPart | null) ?? undefined,
     timeFrom: r.time_from as string | undefined, timeTo: r.time_to as string | undefined,
     reason: r.reason as string | undefined, submittedAt: String(r.submitted_at),
     status: r.status as LeaveRequest["status"], adminNote: r.admin_note as string | undefined,
@@ -1912,8 +2227,37 @@ function submissionToRow(s: Submission): Record<string, unknown> {
 function leaveToRow(r: LeaveRequest): Record<string, unknown> {
   return {
     id: r.id, user_id: r.userId, user_name: r.userName, type: r.type, date: r.date,
+    date_to: r.dateTo ?? null, day_part: r.dayPart ?? null,
     time_from: r.timeFrom ?? null, time_to: r.timeTo ?? null, reason: r.reason ?? null,
     submitted_at: r.submittedAt, status: r.status, admin_note: r.adminNote ?? null,
+  };
+}
+
+function rowToAccomplishmentLog(r: Record<string, unknown>): AccomplishmentLog {
+  return {
+    id: String(r.id), userId: String(r.user_id), userName: String(r.user_name),
+    date: String(r.date), activity: String(r.activity), deliverable: String(r.deliverable),
+    photo: String(r.photo ?? ""), createdAt: String(r.created_at),
+  };
+}
+function accomplishmentLogToRow(l: AccomplishmentLog): Record<string, unknown> {
+  return {
+    id: l.id, user_id: l.userId, user_name: l.userName, date: l.date,
+    activity: l.activity, deliverable: l.deliverable, photo: l.photo, created_at: l.createdAt,
+  };
+}
+
+function rowToChatMessage(r: Record<string, unknown>): ChatMessage {
+  return {
+    id: String(r.id), senderId: String(r.sender_id), senderName: String(r.sender_name),
+    senderPicture: (r.sender_picture as string | null) ?? undefined,
+    message: String(r.message), createdAt: String(r.created_at),
+  };
+}
+function chatMessageToRow(m: ChatMessage): Record<string, unknown> {
+  return {
+    id: m.id, sender_id: m.senderId, sender_name: m.senderName,
+    sender_picture: m.senderPicture ?? null, message: m.message, created_at: m.createdAt,
   };
 }
 
@@ -1934,6 +2278,7 @@ export default function App() {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [accomplishmentLogs, setAccomplishmentLogs] = useState<AccomplishmentLog[]>([]);
   const [loadingData, setLoadingData] = useState(true);
 
   const unreadCount = notifications.filter(n =>
@@ -1950,17 +2295,30 @@ export default function App() {
     (async () => {
       setLoadingData(true);
       try {
-        const [dbUsers, dbSubs, dbNotifs, dbLeave] = await Promise.all([
+        const [dbUsers, dbSubs, dbNotifs, dbLeave, dbLogs] = await Promise.all([
           getAll<Record<string,unknown>>(TABLES.USERS),
           getAll<Record<string,unknown>>(TABLES.SUBMISSIONS).catch(() => []),
           getAll<Record<string,unknown>>(TABLES.NOTIFICATIONS).catch(() => []),
           getAll<Record<string,unknown>>(TABLES.LEAVE_REQUESTS).catch(() => []),
+          getAll<Record<string,unknown>>(TABLES.ACCOMPLISHMENT_LOGS).catch(() => []),
         ]);
         if (cancelled) return;
 
         // Users
         if (dbUsers.length > 0) {
-          setUsers(dbUsers.map(rowToUser));
+          const liveUsers = dbUsers.map(rowToUser);
+          // One-time cleanup: remove any legacy trial/test account left over from a previous version.
+          const trial = liveUsers.find(u => u.username === "testuser" || u.id === "u-test");
+          if (trial) {
+            try { await (await import("@/lib/supabase")).supabase.from(TABLES.USERS).delete().eq("id", trial.id); } catch { /* ignore */ }
+          }
+          setUsers(liveUsers.filter(u => u.username !== "testuser" && u.id !== "u-test"));
+          // Ensure both seeded admin accounts exist even on an already-initialized database.
+          for (const admin of INITIAL_USERS.filter(u => u.isAdmin)) {
+            if (!liveUsers.some(u => u.id === admin.id || u.username === admin.username)) {
+              try { await insertRecord(TABLES.USERS, userToRow(admin)); setUsers(p => [...p, admin]); } catch { /* ignore */ }
+            }
+          }
         } else {
           for (const u of INITIAL_USERS) {
             await insertRecord(TABLES.USERS, userToRow(u));
@@ -2013,6 +2371,7 @@ export default function App() {
 
         if (dbNotifs.length) setNotifications(dbNotifs.map(rowToNotif));
         if (dbLeave.length) setLeaveRequests(dbLeave.map(rowToLeaveRequest));
+        if (dbLogs.length) setAccomplishmentLogs(dbLogs.map(rowToAccomplishmentLog));
 
       } catch (err) {
         console.error("Failed to load data from Supabase:", err);
@@ -2034,10 +2393,11 @@ export default function App() {
 
     async function syncNow() {
       try {
-        const [dbNotifs, dbSubs, dbLeave] = await Promise.all([
+        const [dbNotifs, dbSubs, dbLeave, dbLogs] = await Promise.all([
           getAll<Record<string,unknown>>(TABLES.NOTIFICATIONS).catch(() => []),
           getAll<Record<string,unknown>>(TABLES.SUBMISSIONS).catch(() => []),
           getAll<Record<string,unknown>>(TABLES.LEAVE_REQUESTS).catch(() => []),
+          getAll<Record<string,unknown>>(TABLES.ACCOMPLISHMENT_LOGS).catch(() => []),
         ]);
         if (cancelled) return;
 
@@ -2087,6 +2447,9 @@ export default function App() {
         if (dbLeave.length) {
           setLeaveRequests(dbLeave.map(rowToLeaveRequest));
         }
+        if (dbLogs.length) {
+          setAccomplishmentLogs(dbLogs.map(rowToAccomplishmentLog));
+        }
       } catch (err) {
         console.error("Background sync failed:", err);
       }
@@ -2100,6 +2463,7 @@ export default function App() {
     const unsubNotifs = subscribeToTable(TABLES.NOTIFICATIONS, syncNow);
     const unsubSubs = subscribeToTable(TABLES.SUBMISSIONS, syncNow);
     const unsubLeave = subscribeToTable(TABLES.LEAVE_REQUESTS, syncNow);
+    const unsubLogs = subscribeToTable(TABLES.ACCOMPLISHMENT_LOGS, syncNow);
 
     return () => {
       cancelled = true;
@@ -2107,6 +2471,7 @@ export default function App() {
       unsubNotifs();
       unsubSubs();
       unsubLeave();
+      unsubLogs();
     };
   }, [currentUser]);
   function handleSignIn(u: UserProfile){setCurrentUser(u);setPage("home");try{localStorage.setItem("litm_current_user",JSON.stringify(u));}catch{/* ignore */}}
@@ -2157,6 +2522,23 @@ export default function App() {
       await insertRecord(TABLES.LEAVE_REQUESTS, leaveToRow(req));
       await insertRecord(TABLES.NOTIFICATIONS, notifToRow(notif));
     } catch(err){ console.error("Leave request sync failed:", err); }
+  }
+
+  async function handleAddAccomplishment(log: AccomplishmentLog){
+    // Upload the photo to Supabase Storage and swap in the public URL
+    let finalPhoto = log.photo;
+    try {
+      if (finalPhoto.startsWith("data:")) {
+        const uploaded = await uploadImageToStorage(finalPhoto, `accomplishment-${log.id}.jpg`);
+        finalPhoto = uploaded.publicUrl;
+      }
+    } catch(err){ console.error("Accomplishment photo upload failed, keeping base64:", err); }
+
+    const finalLog = { ...log, photo: finalPhoto };
+    setAccomplishmentLogs(p=>[...p, finalLog]);
+    try {
+      await insertRecord(TABLES.ACCOMPLISHMENT_LOGS, accomplishmentLogToRow(finalLog));
+    } catch(err){ console.error("Accomplishment log sync failed:", err); }
   }
 
   async function handleEvidenceSubmit(dailyId:string, images:string[], submission:Submission, notif:AppNotification){
@@ -2264,10 +2646,11 @@ export default function App() {
     <div className="min-h-screen bg-background">
       <TopNav user={currentUser} page={page} setPage={setPage} onSignOut={handleSignOut} unreadCount={unreadCount}/>
       <main className="max-w-4xl mx-auto px-4 pb-12" style={{paddingTop:"4.5rem"}}>
-        {page==="home" && <HomePage user={currentUser} tasks={myTasks} leaveRequests={leaveRequests} allUsers={users} onSubmitLeave={handleSubmitLeave} onEvidenceSubmit={handleEvidenceSubmit}/>}
+        {page==="home" && <HomePage user={currentUser} tasks={myTasks} leaveRequests={leaveRequests} allUsers={users} onSubmitLeave={handleSubmitLeave} onEvidenceSubmit={handleEvidenceSubmit} accomplishmentLogs={accomplishmentLogs} onAddAccomplishment={handleAddAccomplishment}/>}
         {page==="profile" && <ProfilePage user={currentUser} onUpdate={handleUpdateProfile}/>}
         {page==="tasks" && <MyTasksPage tasks={myTasks} onUpdateTasks={handleUpdateMyTasks}/>}
-        {page==="accomplishments" && <MyAccomplishmentsPage tasks={myTasks} currentUser={currentUser}/>}
+        {page==="accomplishments" && <MyAccomplishmentsPage tasks={myTasks} currentUser={currentUser} accomplishmentLogs={accomplishmentLogs}/>}
+        {page==="chat" && <ChatPage currentUser={currentUser} allUsers={users}/>}
         {page==="monitoring" && currentUser.isAdmin && <MonitoringPage users={users} allTasks={allTasks} leaveRequests={leaveRequests}/>}
         {page==="history" && currentUser.isAdmin && <HistoryPage submissions={submissions} allUsers={users}/>}
         {page==="notifications" && currentUser.isAdmin && (
