@@ -70,6 +70,8 @@ export const TABLES = {
   SUBMISSIONS: 'submissions',
   LEAVE_REQUESTS: 'leave_requests',
   NOTIFICATIONS: 'notifications',
+  ACCOMPLISHMENT_LOGS: 'accomplishment_logs',
+  CHAT_MESSAGES: 'chat_messages',
 } as const
 
 // ── Storage helpers (replaces drive.ts) ─────────────────────
