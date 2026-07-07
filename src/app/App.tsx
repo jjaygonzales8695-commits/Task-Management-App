@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import {
-  getAll, insertRecord, updateRecord, TABLES, uploadImageToStorage, subscribeToTable,
+  getAll, insertRecord, updateRecord, deleteRecord, TABLES, uploadImageToStorage, subscribeToTable,
 } from "@/lib/supabase";
 import {
   generateAccomplishmentReport, generateAccomplishmentHistory, formatDateRange,
@@ -89,7 +89,11 @@ function dateRangeArray(from: string, to: string): string[] {
   if (isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return [from];
   const cur = new Date(start);
   while (cur <= end) {
-    out.push(cur.toISOString().slice(0, 10));
+    // NOTE: toISOString() converts to UTC, which shifts the date back by
+    // one day for any timezone ahead of UTC (e.g. Philippines, UTC+8).
+    // Build the ISO string from local Y/M/D components instead, so the
+    // date shown always matches the date the user actually picked.
+    out.push(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`);
     cur.setDate(cur.getDate() + 1);
   }
   return out;
@@ -268,10 +272,15 @@ function Modal({ title, onClose, children, wide, extraWide }: { title: string; o
   );
 }
 function StatusBadge({ status }: { status: string }) {
-  const cfg: Record<string,string> = { pending:"bg-amber-50 text-amber-700 border border-amber-200", "in-progress":"bg-blue-50 text-blue-700 border border-blue-200", finished:"bg-green-50 text-green-700 border border-green-200", done:"bg-green-50 text-green-700 border border-green-200", submitted:"bg-blue-50 text-blue-700 border border-blue-200", approved:"bg-green-50 text-green-700 border border-green-200", returned:"bg-red-50 text-red-700 border border-red-200" };
-  const labels: Record<string,string> = { pending:"Pending","in-progress":"In Progress",finished:"Finished",done:"Done",submitted:"Under Review",approved:"Approved",returned:"Returned" };
-  const icons: Record<string,React.ReactNode> = { pending:<Circle size={11}/>, "in-progress":<Clock size={11}/>, finished:<CheckCircle2 size={11}/>, done:<CheckCircle2 size={11}/>, submitted:<Clock size={11}/>, approved:<CheckCircle2 size={11}/>, returned:<RotateCcw size={11}/> };
+  const cfg: Record<string,string> = { pending:"bg-amber-50 text-amber-700 border border-amber-200", "in-progress":"bg-blue-50 text-blue-700 border border-blue-200", finished:"bg-green-50 text-green-700 border border-green-200", done:"bg-green-50 text-green-700 border border-green-200", submitted:"bg-blue-50 text-blue-700 border border-blue-200", under_review:"bg-blue-50 text-blue-700 border border-blue-200", approved:"bg-green-50 text-green-700 border border-green-200", returned:"bg-red-50 text-red-700 border border-red-200", retracted:"bg-muted text-muted-foreground border border-border" };
+  const labels: Record<string,string> = { pending:"Pending","in-progress":"In Progress",finished:"Finished",done:"Done",submitted:"Under Review",under_review:"Under Review",approved:"Approved",returned:"Returned",retracted:"Retracted" };
+  const icons: Record<string,React.ReactNode> = { pending:<Circle size={11}/>, "in-progress":<Clock size={11}/>, finished:<CheckCircle2 size={11}/>, done:<CheckCircle2 size={11}/>, submitted:<Clock size={11}/>, under_review:<Clock size={11}/>, approved:<CheckCircle2 size={11}/>, returned:<RotateCcw size={11}/>, retracted:<X size={11}/> };
   return <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${cfg[status]??"bg-muted text-muted-foreground"}`}>{icons[status]??<Circle size={11}/>}{labels[status]??status}</span>;
+}
+
+/** Leave requests use "pending" internally, but should read as "Under Review" to the user. */
+function leaveDisplayStatus(status: string): string {
+  return status === "pending" ? "under_review" : status;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -626,10 +635,11 @@ function EvidenceUploadModal({ task, onSubmit, onClose }: { task: DailyTask; onS
 // ─────────────────────────────────────────────────────────────
 // MONTH CALENDAR — enhanced indicators + click popup with pass slip/CTO
 // ─────────────────────────────────────────────────────────────
-function MonthCalendar({ allDailyTasks, leaveRequests, allUsers, currentUser, onSubmitLeave, accomplishmentLogs, onAddAccomplishment }: {
+function MonthCalendar({ allDailyTasks, leaveRequests, allUsers, currentUser, onSubmitLeave, onRetractLeave, accomplishmentLogs, onAddAccomplishment }: {
   allDailyTasks: DailyTask[]; leaveRequests: LeaveRequest[];
   allUsers: UserProfile[]; currentUser: UserProfile;
   onSubmitLeave: (req: LeaveRequest, notif: AppNotification) => void;
+  onRetractLeave: (reqId: string) => void;
   accomplishmentLogs: AccomplishmentLog[];
   onAddAccomplishment: (log: AccomplishmentLog) => void;
 }) {
@@ -894,7 +904,7 @@ function MonthCalendar({ allDailyTasks, leaveRequests, allUsers, currentUser, on
                             <p className="text-xs text-muted-foreground truncate">{u?.position}</p>
                           </div>
                         </div>
-                        <StatusBadge status={r.status}/>
+                        <StatusBadge status={leaveDisplayStatus(r.status)}/>
                       </div>
                       <div>
                         <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${r.type==="pass_slip"?"bg-orange-200 text-orange-800":r.type==="cto"?"bg-violet-200 text-violet-800":"bg-purple-200 text-purple-800"}`}>{getLeaveTypeLabel(r.type)}</span>
@@ -905,6 +915,12 @@ function MonthCalendar({ allDailyTasks, leaveRequests, allUsers, currentUser, on
                       {r.reason && <p className="text-xs text-foreground/80"><span className="font-semibold">Reason:</span> {r.reason}</p>}
                       <p className="text-xs text-muted-foreground">Submitted: {formatTimestamp(r.submittedAt)}</p>
                       {r.adminNote && <p className="text-xs text-red-600 font-medium">Admin note: {r.adminNote}</p>}
+                      {!currentUser.isAdmin && r.userId===currentUser.id && r.status==="pending" && (
+                        <button
+                          onClick={()=>{ if(confirm("Retract this request? This cannot be undone.")) onRetractLeave(r.id); }}
+                          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-red-200 bg-white text-red-600 text-xs font-semibold hover:bg-red-50 transition-all"
+                        ><X size={12}/>Retract Request</button>
+                      )}
                     </div>
                   );
                 })}
@@ -981,10 +997,11 @@ function AddAccomplishmentModal({ date, user, onSubmit, onClose }: { date: strin
 }
 
 // ─────────────────────────────────────────────────────────────
-function HomePage({ user, tasks, leaveRequests, allUsers, onSubmitLeave, onEvidenceSubmit, accomplishmentLogs, onAddAccomplishment }: {
+function HomePage({ user, tasks, leaveRequests, allUsers, onSubmitLeave, onRetractLeave, onEvidenceSubmit, accomplishmentLogs, onAddAccomplishment }: {
   user: UserProfile; tasks: MonthlyTask[]; leaveRequests: LeaveRequest[];
   allUsers: UserProfile[];
   onSubmitLeave: (req: LeaveRequest, notif: AppNotification) => void;
+  onRetractLeave: (reqId: string) => void;
   onEvidenceSubmit: (dailyId: string, images: string[], submission: Submission, notif: AppNotification) => void;
   accomplishmentLogs: AccomplishmentLog[];
   onAddAccomplishment: (log: AccomplishmentLog) => void;
@@ -1014,7 +1031,7 @@ function HomePage({ user, tasks, leaveRequests, allUsers, onSubmitLeave, onEvide
   return (
     <div className="space-y-6">
       <div><h1 className="text-xl font-bold text-foreground">{greeting}, {user.nickname||user.firstName}!</h1><p className="text-sm text-muted-foreground mt-0.5">{formatDisplay(TODAY)} · {user.position}</p></div>
-      <MonthCalendar allDailyTasks={allDaily} leaveRequests={leaveRequests} allUsers={allUsers} currentUser={user} onSubmitLeave={onSubmitLeave} accomplishmentLogs={accomplishmentLogs} onAddAccomplishment={onAddAccomplishment} />
+      <MonthCalendar allDailyTasks={allDaily} leaveRequests={leaveRequests} allUsers={allUsers} currentUser={user} onSubmitLeave={onSubmitLeave} onRetractLeave={onRetractLeave} accomplishmentLogs={accomplishmentLogs} onAddAccomplishment={onAddAccomplishment} />
 
       {/* Today's Tasks — checklist style */}
       <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
@@ -1091,6 +1108,7 @@ function ProfilePage({ user, onUpdate }: { user: UserProfile; onUpdate: (u: User
   const [stream, setStream] = useState<MediaStream|null>(null); const [showCamera, setShowCamera] = useState(false);
   function setField(k: keyof UserProfile, v: string) { setForm(f=>({...f,[k]:v})); }
   function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) { const file=e.target.files?.[0]; if(!file)return; const r=new FileReader(); r.onload=ev=>{const url=ev.target?.result as string;onUpdate({...user,profilePicture:url});setForm(f=>({...f,profilePicture:url}));};r.readAsDataURL(file); }
+  function handleRemovePhoto() { onUpdate({...user,profilePicture:""}); setForm(f=>({...f,profilePicture:""})); }
   async function startCamera() { try{const s=await navigator.mediaDevices.getUserMedia({video:true});setStream(s);setShowCamera(true);setTimeout(()=>{if(videoRef.current)videoRef.current.srcObject=s;},100);}catch{alert("Camera not available.");} }
   function capturePhoto(){if(!videoRef.current||!canvasRef.current)return;const ctx=canvasRef.current.getContext("2d")!;canvasRef.current.width=videoRef.current.videoWidth;canvasRef.current.height=videoRef.current.videoHeight;ctx.drawImage(videoRef.current,0,0);const url=canvasRef.current.toDataURL("image/jpeg");stream?.getTracks().forEach(t=>t.stop());setStream(null);setShowCamera(false);onUpdate({...user,profilePicture:url});setForm(f=>({...f,profilePicture:url}));}
   function closeCamera(){stream?.getTracks().forEach(t=>t.stop());setStream(null);setShowCamera(false);}
@@ -1105,6 +1123,7 @@ function ProfilePage({ user, onUpdate }: { user: UserProfile; onUpdate: (u: User
         <div className="flex gap-3">
           <button onClick={()=>fileRef.current?.click()} className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-xl border border-border hover:bg-muted transition-all"><Upload size={12}/> Upload Photo</button>
           <button onClick={startCamera} className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-xl border border-border hover:bg-muted transition-all"><Camera size={12}/> Take Photo</button>
+          {user.profilePicture && <button onClick={handleRemovePhoto} className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 transition-all"><X size={12}/> Remove Photo</button>}
         </div>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileUpload}/>
         <h2 className="text-xl font-bold text-foreground">{getFullName(user)}</h2>
@@ -1694,6 +1713,11 @@ function AdminNotificationsPage({ notifications, submissions, leaveRequests, all
     if(n.type==="submission"){const s=getSubmission(n);return s?.status??"pending";}
     const r=getLeaveRequest(n);return r?.status??"pending";
   }
+  /** Same as getStatusForNotif, but leave requests read as "Under Review" instead of "Pending". */
+  function getBadgeStatusForNotif(n: AppNotification): string {
+    const status = getStatusForNotif(n);
+    return n.type==="leave_request" ? leaveDisplayStatus(status) : status;
+  }
 
   return (
     <div className="space-y-6">
@@ -1703,7 +1727,7 @@ function AdminNotificationsPage({ notifications, submissions, leaveRequests, all
 
       <div className="space-y-2">
         {sorted.map(n => {
-          const status = getStatusForNotif(n);
+          const status = getBadgeStatusForNotif(n);
           const typeIcon = n.type==="submission" ? <ClipboardCheck size={16} className="text-accent"/> : <Plane size={16} className="text-purple-500"/>;
           return (
             <button key={n.id} onClick={()=>openNotif(n)}
@@ -1738,7 +1762,7 @@ function AdminNotificationsPage({ notifications, submissions, leaveRequests, all
                 {selected.type==="submission"?<ClipboardCheck size={18} className="text-accent"/>:<Plane size={18} className="text-purple-500"/>}
               </div>
               <div><p className="text-sm font-bold text-foreground">{selected.userName}</p><p className="text-xs text-muted-foreground">{formatTimestamp(selected.timestamp)}</p></div>
-              <div className="ml-auto"><StatusBadge status={getStatusForNotif(selected)}/></div>
+              <div className="ml-auto"><StatusBadge status={getBadgeStatusForNotif(selected)}/></div>
             </div>
 
             {selected.type==="submission"&&(()=>{
@@ -2086,7 +2110,7 @@ function MonitoringPage({ users, allTasks, leaveRequests }: { users: UserProfile
                               <div key={r.id} className="p-3 rounded-xl bg-card border border-border">
                                 <div className="flex items-center justify-between mb-1">
                                   <span className="text-sm font-semibold text-foreground capitalize">{r.type==="pass_slip"?"Pass Slip":r.type==="cto"?"CTO":"Leave"}</span>
-                                  <StatusBadge status={r.status}/>
+                                  <StatusBadge status={leaveDisplayStatus(r.status)}/>
                                 </div>
                                 <p className="text-xs text-muted-foreground">{r.type==="cto"&&r.dateTo&&r.dateTo!==r.date?`${formatDateWithDay(r.date)} – ${formatDateWithDay(r.dateTo)}`:formatDateWithDay(r.date)}</p>
                                 {r.type==="pass_slip"&&<p className="text-xs text-muted-foreground">Time: {r.timeFrom} – {r.timeTo}</p>}
@@ -2232,10 +2256,22 @@ function FloatingChatWidget({ currentUser, allUsers }: { currentUser: UserProfil
               </div>
             ) : (
               messages.map((m, i) => {
+                const isSystem = m.senderId === "system";
                 const isMe = m.senderId === currentUser.id;
                 const prev = messages[i-1];
                 const showHeader = !prev || prev.senderId !== m.senderId || (new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime()) > 5*60*1000;
                 const sender = allUsers.find(u => u.id === m.senderId);
+                if (isSystem) {
+                  return (
+                    <div key={m.id} className="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 flex items-start gap-2">
+                      <AlertCircle size={14} className="text-amber-600 flex-shrink-0 mt-0.5"/>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-amber-800 whitespace-pre-wrap break-words">{m.message}</p>
+                        <p className="text-[9px] text-amber-700/70 mt-1">{formatTimestamp(m.createdAt)}</p>
+                      </div>
+                    </div>
+                  );
+                }
                 return (
                   <div key={m.id} className={`flex items-end gap-2 ${isMe ? "justify-end" : "justify-start"}`}>
                     {!isMe && (
@@ -2529,6 +2565,61 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
+  // ── Overdue task announcement in the chatroom ──────────────
+  // Once per calendar day, at/after 8:00 AM local time, post a chat
+  // message listing every staff member with an overdue daily task
+  // (deadline has passed and it hasn't been approved/finished yet).
+  // Runs from whichever session happens to be open at the time; a
+  // marker in the message text prevents the same day's report from
+  // being posted twice, even if two people are online at once.
+  useEffect(() => {
+    if (loadingData || !currentUser) return;
+    const now = new Date();
+    if (now.getHours() < 8) return;
+
+    const todayKey = todayISO();
+    const heading = `⏰ Overdue Task Report — ${formatDisplay(todayKey)}`;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const rows = await getAll<Record<string, unknown>>(TABLES.CHAT_MESSAGES);
+        const alreadyPosted = rows.some(r => String(r.message ?? "").startsWith(heading));
+        if (alreadyPosted || cancelled) return;
+
+        const overdueByUser: { user: UserProfile; items: { title: string; parentTitle: string; date: string }[] }[] = [];
+        for (const u of users) {
+          if (u.isAdmin) continue;
+          const mTasks = allTasks[u.id] ?? [];
+          const items: { title: string; parentTitle: string; date: string }[] = [];
+          mTasks.forEach(mt => mt.weeklyTasks.forEach(wt => wt.dailyTasks.forEach(dt => {
+            if (dt.date < todayKey && dt.status !== "approved" && dt.status !== "finished") {
+              items.push({ title: cleanTitle(dt.title), parentTitle: mt.title, date: dt.date });
+            }
+          })));
+          if (items.length) overdueByUser.push({ user: u, items });
+        }
+        if (overdueByUser.length === 0 || cancelled) return;
+
+        const body = overdueByUser.map(({ user, items }) => {
+          const taskLines = items.map(it => `   • ${it.title} (${it.parentTitle}) — was due ${formatDisplay(it.date)}`).join("\n");
+          return `${getFullName(user)}:\n${taskLines}`;
+        }).join("\n\n");
+
+        const announcement: ChatMessage = {
+          id: genId(), senderId: "system", senderName: "System",
+          message: `${heading}\nThe following staff have overdue task(s):\n\n${body}`,
+          createdAt: nowISO(),
+        };
+        await insertRecord(TABLES.CHAT_MESSAGES, chatMessageToRow(announcement));
+      } catch (err) {
+        console.error("Overdue task announcement failed:", err);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [loadingData, currentUser, users, allTasks]);
+
   // ── Periodic background sync ──────────────────────────────
   // No real-time push from Supabase here (could add via Realtime later),
   // so we poll every 30s for new notifications/submissions/leave requests.
@@ -2671,6 +2762,13 @@ export default function App() {
     } catch(err){ console.error("Leave request sync failed:", err); }
   }
 
+  async function handleRetractLeave(reqId: string){
+    setLeaveRequests(p=>p.filter(r=>r.id!==reqId));
+    try {
+      await deleteRecord(TABLES.LEAVE_REQUESTS, reqId);
+    } catch(err){ console.error("Retract leave sync failed:", err); }
+  }
+
   async function handleAddAccomplishment(log: AccomplishmentLog){
     // Upload the photo to Supabase Storage and swap in the public URL
     let finalPhoto = log.photo;
@@ -2793,7 +2891,7 @@ export default function App() {
     <div className="min-h-screen bg-background">
       <TopNav user={currentUser} page={page} setPage={setPage} onSignOut={handleSignOut} unreadCount={unreadCount}/>
       <main className="max-w-4xl mx-auto px-4 pb-12" style={{paddingTop:"4.5rem"}}>
-        {page==="home" && <HomePage user={currentUser} tasks={myTasks} leaveRequests={leaveRequests} allUsers={users} onSubmitLeave={handleSubmitLeave} onEvidenceSubmit={handleEvidenceSubmit} accomplishmentLogs={accomplishmentLogs} onAddAccomplishment={handleAddAccomplishment}/>}
+        {page==="home" && <HomePage user={currentUser} tasks={myTasks} leaveRequests={leaveRequests} allUsers={users} onSubmitLeave={handleSubmitLeave} onRetractLeave={handleRetractLeave} onEvidenceSubmit={handleEvidenceSubmit} accomplishmentLogs={accomplishmentLogs} onAddAccomplishment={handleAddAccomplishment}/>}
         {page==="profile" && <ProfilePage user={currentUser} onUpdate={handleUpdateProfile}/>}
         {page==="tasks" && <MyTasksPage tasks={myTasks} onUpdateTasks={handleUpdateMyTasks}/>}
         {page==="accomplishments" && <MyAccomplishmentsPage tasks={myTasks} currentUser={currentUser} accomplishmentLogs={accomplishmentLogs}/>}
