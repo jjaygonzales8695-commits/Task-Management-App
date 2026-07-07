@@ -11,7 +11,7 @@ import {
   Plus, Edit2, Check, Eye, Camera, Upload, FileText, ChevronDown, ChevronUp,
   X, Users, Trash2, Clock, CheckCircle2, Circle, AlertCircle,
   Printer, Calendar as CalendarIcon, Sparkles, Bell, RotateCcw,
-  ClipboardCheck, Plane, MessageCircle, Send,
+  ClipboardCheck, Plane, MessageCircle, Send, Lock,
 } from "lucide-react";
 import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
 import LITMLogo from "@/imports/LITM_Logo_Circular.png";
@@ -1086,6 +1086,7 @@ function HomePage({ user, tasks, leaveRequests, allUsers, onSubmitLeave, onEvide
 // ─────────────────────────────────────────────────────────────
 function ProfilePage({ user, onUpdate }: { user: UserProfile; onUpdate: (u: UserProfile) => void }) {
   const [editing, setEditing] = useState(false); const [form, setForm] = useState<UserProfile>(user);
+  const [showChangePassword, setShowChangePassword] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null); const videoRef = useRef<HTMLVideoElement>(null); const canvasRef = useRef<HTMLCanvasElement>(null);
   const [stream, setStream] = useState<MediaStream|null>(null); const [showCamera, setShowCamera] = useState(false);
   function setField(k: keyof UserProfile, v: string) { setForm(f=>({...f,[k]:v})); }
@@ -1128,8 +1129,59 @@ function ProfilePage({ user, onUpdate }: { user: UserProfile; onUpdate: (u: User
           <div className="col-span-2"><ProfileInfoField label="Email Address" value={form.email} editing={editing} onChange={v=>setField("email",v)}/></div>
         </div>
       </div>
+      <div className="bg-card rounded-2xl border border-border shadow-sm p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">Security</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Change the password you use to sign in.</p>
+          </div>
+          <button onClick={()=>setShowChangePassword(true)} className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-xl border border-border hover:bg-muted transition-all"><Lock size={12}/> Change Password</button>
+        </div>
+      </div>
       {showCamera && <Modal title="Take Profile Photo" onClose={closeCamera}><div className="space-y-4"><video ref={videoRef} autoPlay playsInline className="w-full rounded-xl bg-black"/><canvas ref={canvasRef} className="hidden"/><div className="flex gap-3"><button onClick={closeCamera} className="flex-1 py-2 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-all">Cancel</button><button onClick={capturePhoto} className="flex-1 py-2 rounded-xl bg-accent text-accent-foreground text-sm font-semibold hover:bg-accent/80 transition-all">Capture Photo</button></div></div></Modal>}
+      {showChangePassword && <ChangePasswordModal user={user} onSubmit={(newPassword)=>{onUpdate({...user,password:newPassword});setShowChangePassword(false);}} onClose={()=>setShowChangePassword(false)}/>}
     </div>
+  );
+}
+
+function ChangePasswordModal({ user, onSubmit, onClose }: { user: UserProfile; onSubmit: (newPassword: string) => void; onClose: () => void }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+
+  function handleSubmit() {
+    if (!currentPassword || !newPassword || !confirmPassword) { setError("Please fill in all fields."); return; }
+    if (currentPassword !== user.password) { setError("Your current password is incorrect."); return; }
+    if (newPassword.length < 6) { setError("New password must be at least 6 characters."); return; }
+    if (newPassword !== confirmPassword) { setError("New password and confirmation do not match."); return; }
+    if (newPassword === currentPassword) { setError("New password must be different from your current password."); return; }
+    setError("");
+    onSubmit(newPassword);
+  }
+
+  return (
+    <Modal title="Change Password" onClose={onClose}>
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium mb-1">Current Password</label>
+          <input type="password" value={currentPassword} onChange={e=>setCurrentPassword(e.target.value)} placeholder="Enter your current password" className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">New Password</label>
+          <input type="password" value={newPassword} onChange={e=>setNewPassword(e.target.value)} placeholder="At least 6 characters" className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Confirm New Password</label>
+          <input type="password" value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} placeholder="Re-enter new password" className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all" />
+        </div>
+        {error && <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2"><AlertCircle size={13} className="flex-shrink-0"/><span>{error}</span></div>}
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-all">Cancel</button>
+          <button onClick={handleSubmit} className="flex-1 py-2.5 rounded-xl bg-accent text-accent-foreground text-sm font-semibold hover:bg-accent/80 transition-all">Update Password</button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
