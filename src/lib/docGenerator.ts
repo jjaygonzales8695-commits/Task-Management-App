@@ -325,3 +325,131 @@ export function formatDateRange(month: number, year: number, half: 'first' | 'se
   if (half === 'second') return `${m} 16-${daysInMonth}, ${year}`
   return `${m} 1-${daysInMonth}, ${year}`
 }
+
+// ── 3. CTO Application ───────────────────────────────────────
+// PROVISIONAL layout — built from the standard CSC compensatory-time-off
+// request fields. Swap this for the official CEDO template once it's
+// supplied (see docs/FORMS_TEMPLATES.md).
+
+export interface CTOFormOptions {
+  staffName: string
+  division: string
+  position: string
+  dateFrom: string    // display-formatted, e.g. "July 14, 2026"
+  dateTo: string       // same as dateFrom for a single day
+  dayType: 'Full Day' | 'Half Day (AM)' | 'Half Day (PM)'
+  totalDays: string     // e.g. "1" or "3"
+  reason: string
+}
+
+function labeledRow(label: string, value: string, labelWidth = 3200): TableRow {
+  return new TableRow({
+    children: [
+      cell([new Paragraph({ children: [bold(label, 22)] })], { width: labelWidth }),
+      cell([new Paragraph({ children: [normal(value || ' ', 22)] })], { width: 9488 - labelWidth }),
+    ],
+  })
+}
+
+export async function generateCTOForm(opts: CTOFormOptions): Promise<void> {
+  const header = await buildLetterheadHeader()
+  const COL_LABEL = 3200
+  const COL_VALUE = 9488 - COL_LABEL
+
+  const doc = new Document({
+    sections: [{
+      properties: {
+        page: {
+          size: { width: 11906, height: 16838 },
+          margin: { top: 720, right: 431, bottom: 720, left: 1440, header: 720, footer: 720 },
+        },
+      },
+      headers: { default: header },
+      children: [
+        new Paragraph({ children: [bold('APPLICATION FOR COMPENSATORY TIME-OFF (CTO)', 32)], alignment: AlignmentType.CENTER, spacing: { after: 300 } }),
+        new Table({
+          width: { size: 9488, type: WidthType.DXA },
+          columnWidths: [COL_LABEL, COL_VALUE],
+          rows: [
+            labeledRow('Name of Employee', opts.staffName),
+            labeledRow('Division', opts.division),
+            labeledRow('Position', opts.position),
+            labeledRow('Date(s) Requested', opts.dateFrom === opts.dateTo ? opts.dateFrom : `${opts.dateFrom} – ${opts.dateTo}`),
+            labeledRow('Day Type', opts.dayType),
+            labeledRow('Total Day(s)', opts.totalDays),
+            labeledRow('Reason', opts.reason || '—'),
+          ],
+        }),
+        emptyParagraph(), emptyParagraph(),
+        new Paragraph({ children: [normal('I certify that the above information is true and correct, and that the compensatory time-off requested is charged against my accumulated overtime credits.', 22)], spacing: { after: 400 } }),
+        new Paragraph({ children: [normal('Applicant\u2019s Signature over Printed Name:', 22)], spacing: { after: 600 } }),
+        new Paragraph({ children: [normal('_______________________________________', 22)] }),
+        emptyParagraph(),
+        new Paragraph({ children: [normal('Recommending Approval:', 22), ...tabs(6), normal('Approved by:', 22)] }),
+        emptyParagraph(), emptyParagraph(),
+        new Paragraph({ children: [normal('_______________________________________', 22), ...tabs(2), normal('_______________________________________', 22)] }),
+        new Paragraph({ children: [normal('Division Head', 22), ...tabs(9), normal('CEDO Department Head', 22)] }),
+      ],
+    }],
+  })
+
+  const blob = await Packer.toBlob(doc)
+  saveAs(blob, `CTO_Application_${opts.staffName.replace(/\s+/g,'_')}.docx`)
+}
+
+// ── 4. Pass Slip ──────────────────────────────────────────────
+// PROVISIONAL layout — built from the standard CSC pass slip fields.
+// Swap this for the official CEDO template once it's supplied.
+
+export interface PassSlipFormOptions {
+  staffName: string
+  division: string
+  position: string
+  date: string        // display-formatted
+  timeOut: string
+  timeIn: string
+  purpose: string
+}
+
+export async function generatePassSlipForm(opts: PassSlipFormOptions): Promise<void> {
+  const header = await buildLetterheadHeader()
+  const COL_LABEL = 3200
+  const COL_VALUE = 9488 - COL_LABEL
+
+  const doc = new Document({
+    sections: [{
+      properties: {
+        page: {
+          size: { width: 11906, height: 16838 },
+          margin: { top: 720, right: 431, bottom: 720, left: 1440, header: 720, footer: 720 },
+        },
+      },
+      headers: { default: header },
+      children: [
+        new Paragraph({ children: [bold('OFFICIAL PASS SLIP', 32)], alignment: AlignmentType.CENTER, spacing: { after: 300 } }),
+        new Table({
+          width: { size: 9488, type: WidthType.DXA },
+          columnWidths: [COL_LABEL, COL_VALUE],
+          rows: [
+            labeledRow('Name of Employee', opts.staffName),
+            labeledRow('Division', opts.division),
+            labeledRow('Position', opts.position),
+            labeledRow('Date', opts.date),
+            labeledRow('Time Out', opts.timeOut),
+            labeledRow('Time In (expected)', opts.timeIn),
+            labeledRow('Purpose', opts.purpose || '—'),
+          ],
+        }),
+        emptyParagraph(), emptyParagraph(),
+        new Paragraph({ children: [normal('This pass slip is limited to a maximum of three (3) hours and must be countersigned by the immediate supervisor.', 22)], spacing: { after: 400 } }),
+        new Paragraph({ children: [normal('Requested by:', 22), ...tabs(6), normal('Approved by:', 22)] }),
+        emptyParagraph(), emptyParagraph(),
+        new Paragraph({ children: [normal('_______________________________________', 22), ...tabs(2), normal('_______________________________________', 22)] }),
+        new Paragraph({ children: [normal('Employee Signature', 22), ...tabs(10), normal('Division Head', 22)] }),
+      ],
+    }],
+  })
+
+  const blob = await Packer.toBlob(doc)
+  saveAs(blob, `Pass_Slip_${opts.staffName.replace(/\s+/g,'_')}.docx`)
+}

@@ -4,6 +4,7 @@ import {
 } from "@/lib/supabase";
 import {
   generateAccomplishmentReport, generateAccomplishmentHistory, formatDateRange,
+  generateCTOForm, generatePassSlipForm,
   type AccomplishmentItem, type HistoryRow,
 } from "@/lib/docGenerator";
 import {
@@ -15,19 +16,51 @@ import {
 } from "lucide-react";
 import { ImageWithFallback } from "@/app/components/figma/ImageWithFallback";
 import LITMLogo from "@/imports/LITM_Logo_Circular.png";
+import EPDPMLogo from "@/imports/EPDPM_Logo_Circular.png";
+import SEADLogo from "@/imports/SEAD_Logo_Circular.png";
+import AFLogo from "@/imports/AF_Logo_Circular.png";
+import CEDOSeal from "@/imports/CEDO_Seal.png";
+
+// ─────────────────────────────────────────────────────────────
+// DIVISIONS — CEDO has 4 divisions. Every account belongs to exactly
+// one. Chatrooms, monitoring, and history are scoped per division;
+// only the Department Admin (super_admin) sees across all of them.
+// ─────────────────────────────────────────────────────────────
+
+export type DivisionCode = "LITM" | "EPDPM" | "SEAD" | "AF";
+
+interface DivisionInfo { code: DivisionCode; shortName: string; fullName: string; logo: string; accent: string; }
+
+export const DIVISIONS: Record<DivisionCode, DivisionInfo> = {
+  LITM: { code: "LITM", shortName: "LITM", fullName: "Learning Innovation and Technology Management Division", logo: LITMLogo, accent: "#2C7BE5" },
+  EPDPM: { code: "EPDPM", shortName: "EPDPM", fullName: "Education Policy Development and Programs Management Division", logo: EPDPMLogo, accent: "#0E9F6E" },
+  SEAD: { code: "SEAD", shortName: "SEAD", fullName: "Scholarships and Educational Assistance Division", logo: SEADLogo, accent: "#7C3AED" },
+  AF: { code: "AF", shortName: "A&F", fullName: "Administrative and Finance Division", logo: AFLogo, accent: "#D97706" },
+};
+export const DIVISION_LIST: DivisionInfo[] = [DIVISIONS.LITM, DIVISIONS.EPDPM, DIVISIONS.SEAD, DIVISIONS.AF];
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────────────────────
 
-type Page = "home" | "profile" | "tasks" | "accomplishments" | "monitoring" | "notifications" | "history";
+type Page = "home" | "profile" | "tasks" | "accomplishments" | "monitoring" | "notifications" | "history" | "forms" | "admin";
 type DailyStatus = "pending" | "submitted" | "approved" | "returned" | "finished";
+
+/** staff = regular employee. division_admin = admin scoped to their own division.
+ *  super_admin = department-wide admin (sees/manages every division). */
+type UserRole = "staff" | "division_admin" | "super_admin";
 
 interface UserProfile {
   id: string; username: string; lastName: string; firstName: string;
   middleName: string; suffix: string; nickname: string; designation: string;
   position: string; natureOfWork: string; mobilePhone: string; email: string; password: string;
+  division: DivisionCode; role: UserRole;
+  /** Derived convenience flag: true for division_admin AND super_admin. Kept so existing
+   *  admin-gated UI ("if (user.isAdmin)") continues to work without a rewrite. */
   isAdmin: boolean; profilePicture: string;
+}
+function makeUser(u: Omit<UserProfile, "isAdmin">): UserProfile {
+  return { ...u, isAdmin: u.role === "division_admin" || u.role === "super_admin" };
 }
 interface Deliverable { id: string; title: string; status: "pending" | "done"; }
 interface DailyTask {
@@ -78,7 +111,7 @@ interface AccomplishmentLog {
 
 interface ChatMessage {
   id: string; senderId: string; senderName: string; senderPicture?: string;
-  message: string; createdAt: string;
+  message: string; createdAt: string; division: DivisionCode;
 }
 
 /** Returns all ISO dates (inclusive) between `from` and `to`, in order. */
@@ -214,11 +247,11 @@ function smartGenerateDailyTasks(weekly: WeeklyTask, config: DomainConfig, poolO
 
 const TODAY = todayISO();
 const INITIAL_USERS: UserProfile[] = [
-  { id: "u-admin", username: "admin", lastName: "Reyes", firstName: "Maria", middleName: "Santos", suffix: "", nickname: "Mari", designation: "Division Head", position: "Chief Information Officer", natureOfWork: "Information Systems Management", mobilePhone: "09171234567", email: "admin@litm.gov.ph", password: "admin123", isAdmin: true, profilePicture: "" },
-  { id: "u-admin2", username: "admin2", lastName: "Bautista", firstName: "Ramon", middleName: "Garcia", suffix: "", nickname: "Ramon", designation: "Assistant Division Head", position: "Deputy CIO", natureOfWork: "Information Systems Management", mobilePhone: "09171234568", email: "admin2@litm.gov.ph", password: "admin123", isAdmin: true, profilePicture: "" },
-  { id: "u-001", username: "jcruz", lastName: "Cruz", firstName: "Jose", middleName: "Manuel", suffix: "Jr.", nickname: "Jojo", designation: "IT Specialist II", position: "Systems Analyst", natureOfWork: "Systems Development and Analysis", mobilePhone: "09281234567", email: "jose.cruz@litm.gov.ph", password: "staff123", isAdmin: false, profilePicture: "" },
-  { id: "u-002", username: "adelacruz", lastName: "Dela Cruz", firstName: "Ana", middleName: "Bautista", suffix: "", nickname: "Annie", designation: "IT Specialist I", position: "Network Administrator", natureOfWork: "Network and Infrastructure Support", mobilePhone: "09301234567", email: "ana.delacruz@litm.gov.ph", password: "staff123", isAdmin: false, profilePicture: "" },
-  { id: "u-003", username: "msantos", lastName: "Santos", firstName: "Mark", middleName: "David", suffix: "", nickname: "Marky", designation: "IT Officer I", position: "Database Administrator", natureOfWork: "Database Management", mobilePhone: "09191234567", email: "mark.santos@litm.gov.ph", password: "staff123", isAdmin: false, profilePicture: "" },
+  makeUser({ id: "u-admin", username: "admin", lastName: "Reyes", firstName: "Maria", middleName: "Santos", suffix: "", nickname: "Mari", designation: "Department Head", position: "CEDO Department Head", natureOfWork: "Department Administration", mobilePhone: "09171234567", email: "admin@cedo.gov.ph", password: "admin123", division: "LITM", role: "super_admin", profilePicture: "" }),
+  makeUser({ id: "u-admin2", username: "admin2", lastName: "Bautista", firstName: "Ramon", middleName: "Garcia", suffix: "", nickname: "Ramon", designation: "Division Head", position: "LITM Division Head", natureOfWork: "Information Systems Management", mobilePhone: "09171234568", email: "admin2@litm.gov.ph", password: "admin123", division: "LITM", role: "division_admin", profilePicture: "" }),
+  makeUser({ id: "u-001", username: "jcruz", lastName: "Cruz", firstName: "Jose", middleName: "Manuel", suffix: "Jr.", nickname: "Jojo", designation: "IT Specialist II", position: "Systems Analyst", natureOfWork: "Systems Development and Analysis", mobilePhone: "09281234567", email: "jose.cruz@litm.gov.ph", password: "staff123", division: "LITM", role: "staff", profilePicture: "" }),
+  makeUser({ id: "u-002", username: "adelacruz", lastName: "Dela Cruz", firstName: "Ana", middleName: "Bautista", suffix: "", nickname: "Annie", designation: "IT Specialist I", position: "Network Administrator", natureOfWork: "Network and Infrastructure Support", mobilePhone: "09301234567", email: "ana.delacruz@litm.gov.ph", password: "staff123", division: "LITM", role: "staff", profilePicture: "" }),
+  makeUser({ id: "u-003", username: "msantos", lastName: "Santos", firstName: "Mark", middleName: "David", suffix: "", nickname: "Marky", designation: "IT Officer I", position: "Database Administrator", natureOfWork: "Database Management", mobilePhone: "09191234567", email: "mark.santos@litm.gov.ph", password: "staff123", division: "LITM", role: "staff", profilePicture: "" }),
 ];
 function buildSeedTasks(): TasksData {
   const now = new Date(); const m = now.getMonth(); const y = now.getFullYear(); const t: TasksData = {};
@@ -297,10 +330,10 @@ function SignInPage({ users, onSignIn, onGoRegister }: { users: UserProfile[]; o
       <div className="w-full max-w-sm">
         <div className="text-center mb-7">
           <div className="inline-flex items-center justify-center w-24 h-24 rounded-full overflow-hidden bg-white shadow-lg border-4 border-accent mb-3 mx-auto">
-            <ImageWithFallback src={LITMLogo} alt="LITM Logo" className="w-full h-full object-cover" />
+            <ImageWithFallback src={CEDOSeal} alt="CEDO" className="w-full h-full object-contain p-2" />
           </div>
-          <h1 className="text-lg font-bold text-foreground leading-snug">Learning Innovation and<br />Technology Management</h1>
-          <p className="text-sm text-muted-foreground mt-1">Task & Accomplishment Tracker</p>
+          <h1 className="text-lg font-bold text-foreground leading-snug">City Education and<br />Development Office</h1>
+          <p className="text-sm text-muted-foreground mt-1">Division Task & Accomplishment Tracker</p>
         </div>
         <div className="bg-card rounded-2xl shadow-lg border border-border p-7">
           <h2 className="text-base font-semibold text-foreground mb-5">Sign In to Your Account</h2>
@@ -326,24 +359,46 @@ function SignInPage({ users, onSignIn, onGoRegister }: { users: UserProfile[]; o
 // REGISTER PAGE
 // ─────────────────────────────────────────────────────────────
 function RegisterPage({ users, onRegister, onBack }: { users: UserProfile[]; onRegister: (u: UserProfile) => void; onBack: () => void }) {
-  const [lastName, setLastName] = useState(""); const [firstName, setFirstName] = useState(""); const [middleName, setMiddleName] = useState(""); const [suffix, setSuffix] = useState(""); const [nickname, setNickname] = useState(""); const [username, setUsername] = useState(""); const [designation, setDesignation] = useState(""); const [position, setPosition] = useState(""); const [natureOfWork, setNatureOfWork] = useState(""); const [mobilePhone, setMobilePhone] = useState(""); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [confirmPassword, setConfirmPassword] = useState(""); const [error, setError] = useState("");
+  const [lastName, setLastName] = useState(""); const [firstName, setFirstName] = useState(""); const [middleName, setMiddleName] = useState(""); const [suffix, setSuffix] = useState(""); const [nickname, setNickname] = useState(""); const [username, setUsername] = useState(""); const [designation, setDesignation] = useState(""); const [position, setPosition] = useState(""); const [natureOfWork, setNatureOfWork] = useState(""); const [mobilePhone, setMobilePhone] = useState(""); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [confirmPassword, setConfirmPassword] = useState(""); const [division, setDivision] = useState<DivisionCode | "">(""); const [error, setError] = useState("");
   function handleRegister() {
     if (!lastName||!firstName||!middleName||!nickname||!username||!designation||!position||!natureOfWork||!mobilePhone||!email||!password) { setError("Please fill in all required fields."); return; }
+    if (!division) { setError("Please select your Division."); return; }
     if (users.some(u => u.username === username)) { setError("Username already taken."); return; }
     if (password !== confirmPassword) { setError("Passwords do not match."); return; }
     if (password.length < 6) { setError("Password must be at least 6 characters."); return; }
-    setError(""); onRegister({ id:genId(),username,lastName,firstName,middleName,suffix,nickname,designation,position,natureOfWork,mobilePhone,email,password,isAdmin:false,profilePicture:"" });
+    setError("");
+    onRegister(makeUser({ id:genId(),username,lastName,firstName,middleName,suffix,nickname,designation,position,natureOfWork,mobilePhone,email,password,division,role:"staff",profilePicture:"" }));
   }
+  const previewLogo = division ? DIVISIONS[division].logo : CEDOSeal;
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4 py-8">
       <div className="w-full max-w-xl">
         <div className="text-center mb-5">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full overflow-hidden bg-white shadow border-2 border-accent mb-2 mx-auto"><ImageWithFallback src={LITMLogo} alt="LITM" className="w-full h-full object-cover" /></div>
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full overflow-hidden bg-white shadow border-2 border-accent mb-2 mx-auto"><ImageWithFallback src={previewLogo} alt="Division" className={`w-full h-full ${division ? "object-cover" : "object-contain p-1.5"}`} /></div>
           <h1 className="text-xl font-bold text-foreground">Create Account</h1>
-          <p className="text-sm text-muted-foreground">LITM Task Tracker — New Staff Registration</p>
+          <p className="text-sm text-muted-foreground">CEDO Task Tracker — New Staff Registration</p>
         </div>
         <div className="bg-card rounded-2xl shadow-lg border border-border p-7">
           {error && <div className="flex items-center gap-2 text-sm text-destructive bg-red-50 border border-red-200 rounded-lg px-3 py-2.5 mb-5"><AlertCircle size={14} className="flex-shrink-0" /> {error}</div>}
+
+          <div className="mb-5">
+            <label className="block text-sm font-medium text-foreground mb-2">Division <span className="text-red-500">*</span></label>
+            <div className="grid grid-cols-2 gap-3">
+              {DIVISION_LIST.map(d => (
+                <button key={d.code} type="button" onClick={() => setDivision(d.code)}
+                  className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border-2 text-left transition-all ${division===d.code ? "border-accent bg-secondary" : "border-border hover:border-accent/40"}`}>
+                  <span className={`flex-shrink-0 w-5 h-5 rounded-md border-2 flex items-center justify-center ${division===d.code ? "bg-accent border-accent" : "border-muted-foreground/40"}`}>
+                    {division===d.code && <Check size={13} className="text-accent-foreground" />}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-foreground">{d.shortName}</span>
+                    <span className="block text-[11px] text-muted-foreground truncate">{d.fullName}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Last Name" value={lastName} onChange={setLastName} autoComplete="family-name" />
             <FormField label="First Name" value={firstName} onChange={setFirstName} autoComplete="given-name" />
@@ -372,9 +427,17 @@ function RegisterPage({ users, onRegister, onBack }: { users: UserProfile[]; onR
 // ─────────────────────────────────────────────────────────────
 // TOP NAV
 // ─────────────────────────────────────────────────────────────
+const FORM_TYPES: { key: "cto" | "pass_slip"; label: string; icon: React.ReactNode }[] = [
+  { key: "cto", label: "CTO Application", icon: <ClipboardCheck size={14}/> },
+  { key: "pass_slip", label: "Pass Slip", icon: <FileText size={14}/> },
+];
+
 function TopNav({ user, page, setPage, onSignOut, unreadCount }: { user: UserProfile; page: Page; setPage: (p: Page) => void; onSignOut: () => void; unreadCount: number }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [formsOpen, setFormsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const formsRef = useRef<HTMLDivElement>(null);
+  const division = DIVISIONS[user.division];
 
   const primaryItems: { key: Page; label: string; icon: React.ReactNode }[] = [
     { key:"home", label:"Home", icon:<Home size={14}/> },
@@ -385,11 +448,16 @@ function TopNav({ user, page, setPage, onSignOut, unreadCount }: { user: UserPro
     { key:"profile", label:"Profile", icon:<User size={14}/> },
     { key:"accomplishments", label:"My Accomplishments", icon:<Award size={14}/> },
   ];
-  if (user.isAdmin) { menuItems.push({ key:"monitoring", label:"LITM Monitoring", icon:<Users size={14}/> }); menuItems.push({ key:"history", label:"History", icon:<ClipboardCheck size={14}/> }); }
+  if (user.isAdmin) {
+    menuItems.push({ key:"monitoring", label: user.role==="super_admin" ? "Department Monitoring" : `${division.shortName} Monitoring`, icon:<Users size={14}/> });
+    menuItems.push({ key:"history", label:"History", icon:<ClipboardCheck size={14}/> });
+  }
+  if (user.role === "super_admin") { menuItems.push({ key:"admin", label:"Admin Management", icon:<Lock size={14}/> }); }
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+      if (formsRef.current && !formsRef.current.contains(e.target as Node)) setFormsOpen(false);
     }
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
@@ -401,8 +469,8 @@ function TopNav({ user, page, setPage, onSignOut, unreadCount }: { user: UserPro
     <header className="fixed top-0 left-0 right-0 z-40 bg-primary shadow-lg">
       <div className="max-w-7xl mx-auto px-4 flex items-center justify-between h-14">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-full overflow-hidden border-2 border-accent flex-shrink-0 bg-white"><ImageWithFallback src={LITMLogo} alt="LITM" className="w-full h-full object-cover" /></div>
-          <span className="text-white font-bold text-sm tracking-wide hidden sm:inline">LITM Task Tracker</span>
+          <div className="w-8 h-8 rounded-full overflow-hidden border-2 border-accent flex-shrink-0 bg-white"><ImageWithFallback src={division.logo} alt={division.shortName} className="w-full h-full object-cover" /></div>
+          <span className="text-white font-bold text-sm tracking-wide hidden sm:inline">{division.shortName} Task Tracker</span>
         </div>
         <nav className="hidden md:flex items-center gap-0.5">
           {primaryItems.map(item => (
@@ -412,6 +480,22 @@ function TopNav({ user, page, setPage, onSignOut, unreadCount }: { user: UserPro
               {item.key==="notifications" && unreadCount > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{unreadCount > 9 ? "9+" : unreadCount}</span>}
             </button>
           ))}
+          <div className="relative" ref={formsRef}>
+            <button onClick={() => setFormsOpen(o=>!o)}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium transition-all ${page==="forms" ? "bg-accent text-accent-foreground font-semibold" : "text-white/70 hover:text-white hover:bg-white/10"}`}>
+              <FileText size={14}/> Forms <ChevronDown size={12} className={`transition-transform ${formsOpen?"rotate-180":""}`}/>
+            </button>
+            {formsOpen && (
+              <div className="absolute left-0 top-full mt-2 w-52 bg-card rounded-xl border border-border shadow-xl overflow-hidden py-1.5 z-50">
+                {FORM_TYPES.map(f => (
+                  <button key={f.key} onClick={() => { setPage("forms"); setFormsOpen(false); }}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-foreground/80 hover:bg-muted transition-all">
+                    {f.icon} {f.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </nav>
         <div className="flex items-center gap-2">
           {unreadCount > 0 && <button onClick={() => setPage("notifications")} className="relative md:hidden p-2 text-white/70 hover:text-white"><Bell size={18}/><span className="absolute top-0 right-0 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{unreadCount}</span></button>}
@@ -446,6 +530,10 @@ function TopNav({ user, page, setPage, onSignOut, unreadCount }: { user: UserPro
             {item.key==="notifications" && unreadCount > 0 && <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">{unreadCount}</span>}
           </button>
         ))}
+        <button onClick={() => setPage("forms")}
+          className={`relative flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${page==="forms" ? "bg-accent text-accent-foreground font-semibold" : "text-white/55 hover:text-white hover:bg-white/10"}`}>
+          <FileText size={14}/> Forms
+        </button>
       </div>
     </header>
   );
@@ -2048,9 +2136,12 @@ function MonitoringPage({ users, allTasks, leaveRequests }: { users: UserProfile
   function getProgress(uid:string){const all=(allTasks[uid]??[]).flatMap(mt=>mt.weeklyTasks.flatMap(wt=>wt.dailyTasks));const done=all.filter(dt=>dt.status==="approved"||dt.status==="finished").length;return{total:all.length,done,pct:all.length>0?Math.round((done/all.length)*100):0};}
   function getTabFor(uid:string): "tasks"|"leaves" { return activeTab[uid]??"tasks"; }
   function setTabFor(uid:string, tab:"tasks"|"leaves") { setActiveTab(p=>({...p,[uid]:tab})); }
+  const divisionsRepresented = Array.from(new Set(staff.map(u=>u.division)));
+  const heading = divisionsRepresented.length === 1 ? `${DIVISIONS[divisionsRepresented[0]].shortName} Tasks Monitoring` : "Department Tasks Monitoring";
+  const subheading = divisionsRepresented.length === 1 ? "Monitor task progress of all division staff" : "Monitor task progress across all CEDO divisions";
   return (
     <div className="space-y-6">
-      <div><h1 className="text-xl font-bold text-foreground">LITM Tasks Monitoring</h1><p className="text-sm text-muted-foreground mt-0.5">Monitor task progress of all division staff</p></div>
+      <div><h1 className="text-xl font-bold text-foreground">{heading}</h1><p className="text-sm text-muted-foreground mt-0.5">{subheading}</p></div>
       <div className="grid grid-cols-3 gap-4">
         {[{label:"Total Staff",value:staff.length,cls:"text-blue-600 border-blue-100 bg-blue-50"},{label:"Active Today",value:staff.filter(u=>getTodayTasks(u.id).length>0).length,cls:"text-amber-600 border-amber-100 bg-amber-50"},{label:"Approved Today",value:staff.reduce((s,u)=>s+getTodayTasks(u.id).filter(t=>t.dt.status==="approved").length,0),cls:"text-green-600 border-green-100 bg-green-50"}].map(c=>(
           <div key={c.label} className={`bg-card rounded-2xl border shadow-sm p-5 ${c.cls.split(" ").slice(1).join(" ")}`}><p className="text-2xl font-bold text-foreground">{c.value}</p><p className="text-xs text-muted-foreground font-medium mt-0.5">{c.label}</p></div>
@@ -2135,8 +2226,215 @@ function MonitoringPage({ users, allTasks, leaveRequests }: { users: UserProfile
 }
 
 // ─────────────────────────────────────────────────────────────
+// FORMS PAGE — generate CTO Application / Pass Slip documents,
+// and optionally file the matching approval request in one step.
+// NOTE: layout is provisional (standard CSC fields + CEDO letterhead)
+// until the official CEDO templates are supplied and swapped in.
+// ─────────────────────────────────────────────────────────────
+function FormsPage({ currentUser, leaveRequests, onSubmitLeave }: {
+  currentUser: UserProfile; leaveRequests: LeaveRequest[];
+  onSubmitLeave: (req: LeaveRequest, notif: AppNotification) => void;
+}) {
+  const [formType, setFormType] = useState<"cto" | "pass_slip">("cto");
+
+  // CTO fields
+  const [ctoDateFrom, setCtoDateFrom] = useState(todayISO());
+  const [ctoDateTo, setCtoDateTo] = useState(todayISO());
+  const [ctoDayType, setCtoDayType] = useState<"Full Day" | "Half Day (AM)" | "Half Day (PM)">("Full Day");
+  const [ctoReason, setCtoReason] = useState("");
+
+  // Pass slip fields
+  const [psDate, setPsDate] = useState(todayISO());
+  const [psTimeOut, setPsTimeOut] = useState("13:00");
+  const [psTimeIn, setPsTimeIn] = useState("16:00");
+  const [psPurpose, setPsPurpose] = useState("");
+
+  const [also, setAlso] = useState(true); // also file the approval request alongside the download
+  const [done, setDone] = useState<string | null>(null);
+
+  const myRequests = leaveRequests.filter(r => r.userId === currentUser.id && (r.type === "cto" || r.type === "pass_slip"))
+    .sort((a,b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+
+  async function handleGenerateCTO() {
+    const totalDays = String(dateRangeArray(ctoDateFrom, ctoDateTo).length);
+    await generateCTOForm({
+      staffName: getFullName(currentUser), division: DIVISIONS[currentUser.division].fullName,
+      position: currentUser.position, dateFrom: formatDisplay(ctoDateFrom), dateTo: formatDisplay(ctoDateTo),
+      dayType: ctoDayType, totalDays, reason: ctoReason,
+    });
+    if (also) {
+      const req: LeaveRequest = {
+        id: genId(), userId: currentUser.id, userName: getFullName(currentUser), type: "cto",
+        date: ctoDateFrom, dateTo: ctoDateTo, dayPart: ctoDayType === "Full Day" ? "full" : ctoDayType === "Half Day (AM)" ? "AM" : "PM",
+        reason: ctoReason, submittedAt: nowISO(), status: "pending",
+      };
+      const notif: AppNotification = {
+        id: genId(), type: "leave_request", userId: currentUser.id, userName: getFullName(currentUser),
+        title: "CTO Request", message: `${getFullName(currentUser)} requested CTO for ${formatDisplay(ctoDateFrom)}${ctoDateTo!==ctoDateFrom?` – ${formatDisplay(ctoDateTo)}`:""}.`,
+        timestamp: nowISO(), read: false, referenceId: req.id,
+      };
+      onSubmitLeave(req, notif);
+    }
+    setDone("cto");
+  }
+
+  async function handleGeneratePassSlip() {
+    await generatePassSlipForm({
+      staffName: getFullName(currentUser), division: DIVISIONS[currentUser.division].fullName,
+      position: currentUser.position, date: formatDisplay(psDate), timeOut: psTimeOut, timeIn: psTimeIn, purpose: psPurpose,
+    });
+    if (also) {
+      const req: LeaveRequest = {
+        id: genId(), userId: currentUser.id, userName: getFullName(currentUser), type: "pass_slip",
+        date: psDate, timeFrom: psTimeOut, timeTo: psTimeIn, reason: psPurpose, submittedAt: nowISO(), status: "pending",
+      };
+      const notif: AppNotification = {
+        id: genId(), type: "leave_request", userId: currentUser.id, userName: getFullName(currentUser),
+        title: "Pass Slip Request", message: `${getFullName(currentUser)} requested a pass slip for ${formatDisplay(psDate)}.`,
+        timestamp: nowISO(), read: false, referenceId: req.id,
+      };
+      onSubmitLeave(req, notif);
+    }
+    setDone("pass_slip");
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-xl font-bold text-foreground">Forms</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">Generate and file official CEDO forms</p>
+      </div>
+
+      <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-start gap-2">
+        <AlertCircle size={13} className="flex-shrink-0 mt-0.5"/>
+        <span>These forms use a provisional layout (standard CSC fields on the CEDO letterhead). Once the official CTO and Pass Slip templates are provided, the generated document will be updated to match them exactly — the fields and request workflow won't change.</span>
+      </div>
+
+      <div className="flex rounded-xl border border-border overflow-hidden bg-card w-fit">
+        {FORM_TYPES.map(f => (
+          <button key={f.key} onClick={() => { setFormType(f.key); setDone(null); }}
+            className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${formType===f.key ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted"}`}>
+            {f.icon} {f.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="bg-card rounded-2xl border border-border shadow-sm p-6 space-y-4">
+        {formType === "cto" ? (
+          <>
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className="block text-sm font-medium mb-1">Date From</label><input type="date" value={ctoDateFrom} onChange={e=>setCtoDateFrom(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"/></div>
+              <div><label className="block text-sm font-medium mb-1">Date To</label><input type="date" min={ctoDateFrom} value={ctoDateTo} onChange={e=>setCtoDateTo(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"/></div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Day Type</label>
+              <div className="grid grid-cols-3 gap-3">
+                {(["Full Day","Half Day (AM)","Half Day (PM)"] as const).map(t => (
+                  <button key={t} onClick={()=>setCtoDayType(t)} className={`py-2 rounded-xl border-2 text-xs font-semibold transition-all ${ctoDayType===t?"border-accent bg-secondary text-foreground":"border-border hover:border-accent/40"}`}>{t}</button>
+                ))}
+              </div>
+            </div>
+            <div><label className="block text-sm font-medium mb-1">Reason <span className="text-muted-foreground text-xs">(Optional)</span></label><textarea value={ctoReason} onChange={e=>setCtoReason(e.target.value)} rows={3} className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 resize-none"/></div>
+          </>
+        ) : (
+          <>
+            <div><label className="block text-sm font-medium mb-1">Date</label><input type="date" value={psDate} onChange={e=>setPsDate(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"/></div>
+            <div className="grid grid-cols-2 gap-4">
+              <div><label className="block text-sm font-medium mb-1">Time Out</label><input type="time" value={psTimeOut} onChange={e=>setPsTimeOut(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"/></div>
+              <div><label className="block text-sm font-medium mb-1">Time In (expected)</label><input type="time" value={psTimeIn} onChange={e=>setPsTimeIn(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"/></div>
+            </div>
+            <div><label className="block text-sm font-medium mb-1">Purpose</label><textarea value={psPurpose} onChange={e=>setPsPurpose(e.target.value)} rows={3} className="w-full px-3 py-2.5 rounded-xl border border-border bg-input-background text-sm focus:outline-none focus:ring-2 focus:ring-accent/50 resize-none"/></div>
+          </>
+        )}
+
+        <label className="flex items-center gap-2 text-sm text-foreground">
+          <input type="checkbox" checked={also} onChange={e=>setAlso(e.target.checked)} className="rounded border-border"/>
+          Also file this as an approval request to my division admin
+        </label>
+
+        {done === formType && <div className="p-2.5 rounded-xl bg-green-50 border border-green-200 text-xs text-green-700 flex items-center gap-2"><CheckCircle2 size={13}/><span>Document downloaded{also?" and request filed":""}.</span></div>}
+
+        <button onClick={formType==="cto" ? handleGenerateCTO : handleGeneratePassSlip}
+          className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all flex items-center justify-center gap-2">
+          <FileText size={14}/> Generate {formType==="cto"?"CTO Application":"Pass Slip"} (.docx)
+        </button>
+      </div>
+
+      {myRequests.length > 0 && (
+        <div>
+          <h2 className="text-sm font-semibold text-foreground mb-2">My Recent Form Requests</h2>
+          <div className="space-y-2">
+            {myRequests.slice(0,8).map(r => (
+              <div key={r.id} className="p-3 rounded-xl bg-card border border-border flex items-center justify-between">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-foreground">{r.type==="cto"?"CTO":"Pass Slip"}</p>
+                  <p className="text-xs text-muted-foreground">{r.type==="cto"&&r.dateTo&&r.dateTo!==r.date?`${formatDisplay(r.date)} – ${formatDisplay(r.dateTo)}`:formatDisplay(r.date)}</p>
+                </div>
+                <StatusBadge status={leaveDisplayStatus(r.status)}/>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// ADMIN MANAGEMENT PAGE — department-wide super_admin only.
+// Promotes/demotes staff to Division Admin, or grants/revokes the
+// department-wide Super Admin role. Per-division admins cannot reach
+// this page (gated at the router on role === "super_admin").
+// ─────────────────────────────────────────────────────────────
+function AdminManagementPage({ users, currentUser, onChangeRole }: {
+  users: UserProfile[]; currentUser: UserProfile; onChangeRole: (userId: string, role: UserRole) => void;
+}) {
+  const [filterDivision, setFilterDivision] = useState<DivisionCode | "all">("all");
+  const visible = users.filter(u => filterDivision === "all" || u.division === filterDivision);
+  const roleLabel: Record<UserRole,string> = { staff:"Staff", division_admin:"Division Admin", super_admin:"Super Admin (Dept-wide)" };
+  const roleBadge: Record<UserRole,string> = { staff:"bg-muted text-muted-foreground border border-border", division_admin:"bg-blue-50 text-blue-700 border border-blue-200", super_admin:"bg-purple-50 text-purple-700 border border-purple-200" };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-xl font-bold text-foreground">Admin Management</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">Assign Division Admins and manage department-wide access. Only the Department Admin can make these changes.</p>
+      </div>
+
+      <select value={filterDivision} onChange={e => setFilterDivision(e.target.value as DivisionCode | "all")}
+        className="px-3.5 py-2 rounded-xl border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-accent/50">
+        <option value="all">All Divisions</option>
+        {DIVISION_LIST.map(d => <option key={d.code} value={d.code}>{d.shortName}</option>)}
+      </select>
+
+      <div className="space-y-2">
+        {visible.map(u => (
+          <div key={u.id} className="bg-card rounded-2xl border border-border shadow-sm p-4 flex items-center gap-4">
+            <div className="w-9 h-9 rounded-full overflow-hidden bg-primary flex items-center justify-center flex-shrink-0">
+              {u.profilePicture ? <img src={u.profilePicture} alt="" className="w-full h-full object-cover"/> : <span className="text-white text-xs font-bold">{u.firstName.charAt(0)}{u.lastName.charAt(0)}</span>}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-foreground truncate">{getFullName(u)}</p>
+              <p className="text-xs text-muted-foreground truncate">{u.designation} · {DIVISIONS[u.division].shortName}</p>
+            </div>
+            <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${roleBadge[u.role]}`}>{roleLabel[u.role]}</span>
+            <select value={u.role} disabled={u.id === currentUser.id} onChange={e => onChangeRole(u.id, e.target.value as UserRole)}
+              className="text-sm border border-border rounded-lg px-2 py-1.5 bg-card disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-accent/50 flex-shrink-0">
+              <option value="staff">Staff</option>
+              <option value="division_admin">Division Admin</option>
+              <option value="super_admin">Super Admin</option>
+            </select>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // FLOATING CHAT WIDGET — Messenger-style pop-up group chatroom
 // ─────────────────────────────────────────────────────────────
+
 type PendingChatMessage = ChatMessage & { failed?: boolean; sending?: boolean };
 
 function FloatingChatWidget({ currentUser, allUsers }: { currentUser: UserProfile; allUsers: UserProfile[] }) {
@@ -2147,14 +2445,21 @@ function FloatingChatWidget({ currentUser, allUsers }: { currentUser: UserProfil
   const [loading, setLoading] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [lastSeenCount, setLastSeenCount] = useState(0);
+  // Chatrooms are exclusive per division. Regular staff and division admins are
+  // locked to their own division; only the department-wide super_admin can switch
+  // between division chatrooms to check in on any of them.
+  const [viewDivision, setViewDivision] = useState<DivisionCode>(currentUser.division);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const canSwitchDivision = currentUser.role === "super_admin";
+  const activeDivision = canSwitchDivision ? viewDivision : currentUser.division;
 
   // Merge confirmed server messages with any still-optimistic local ones,
   // so a message never visually "disappears" while its insert is in flight.
   const messages: PendingChatMessage[] = [
     ...serverMessages,
     ...pending.filter(p => !serverMessages.some(s => s.id === p.id)),
-  ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  ].filter(m => m.division === activeDivision)
+   .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
   async function loadMessages() {
     try {
@@ -2213,7 +2518,7 @@ function FloatingChatWidget({ currentUser, allUsers }: { currentUser: UserProfil
     const msg: PendingChatMessage = {
       id: genId(), senderId: currentUser.id, senderName: getFullName(currentUser),
       senderPicture: currentUser.profilePicture || undefined,
-      message: text, createdAt: nowISO(), sending: true,
+      message: text, createdAt: nowISO(), division: activeDivision, sending: true,
     };
     setPending(prev => [...prev, msg]);
     setDraft("");
@@ -2235,9 +2540,17 @@ function FloatingChatWidget({ currentUser, allUsers }: { currentUser: UserProfil
     <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-3">
       {open && (
         <div className="w-[92vw] max-w-sm bg-card rounded-2xl border border-border shadow-2xl flex flex-col overflow-hidden" style={{ height: "70vh", maxHeight: 560 }}>
-          <div className="flex items-center justify-between px-4 py-3 bg-primary text-white flex-shrink-0">
-            <div className="flex items-center gap-2"><MessageCircle size={16}/><span className="text-sm font-semibold">LITM Staff Chat</span></div>
-            <button onClick={() => setOpen(false)} className="p-1 rounded-lg hover:bg-white/10 transition-all"><X size={16}/></button>
+          <div className="flex items-center justify-between px-4 py-3 bg-primary text-white flex-shrink-0 gap-2">
+            <div className="flex items-center gap-2 min-w-0"><MessageCircle size={16} className="flex-shrink-0"/><span className="text-sm font-semibold truncate">{DIVISIONS[activeDivision].shortName} Staff Chat</span></div>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {canSwitchDivision && (
+                <select value={viewDivision} onChange={e => setViewDivision(e.target.value as DivisionCode)}
+                  className="text-xs bg-white/10 border border-white/20 rounded-lg px-1.5 py-1 text-white focus:outline-none">
+                  {DIVISION_LIST.map(d => <option key={d.code} value={d.code} className="text-foreground">{d.shortName}</option>)}
+                </select>
+              )}
+              <button onClick={() => setOpen(false)} className="p-1 rounded-lg hover:bg-white/10 transition-all"><X size={16}/></button>
+            </div>
           </div>
 
           {connectionError && (
@@ -2329,12 +2642,16 @@ function userToRow(u: UserProfile): Record<string, unknown> {
     middle_name: u.middleName, suffix: u.suffix, nickname: u.nickname,
     designation: u.designation, position: u.position, nature_of_work: u.natureOfWork, mobile_phone: u.mobilePhone,
     email: u.email, password: u.password, is_admin: u.isAdmin,
+    division: u.division, role: u.role,
     profile_picture: u.profilePicture,
   };
 }
 
 /** Converts a Supabase row back to a UserProfile. */
 function rowToUser(r: Record<string, unknown>): UserProfile {
+  const division = (String(r.division ?? "LITM") as DivisionCode);
+  // Back-compat: rows written before the `role` column existed only had `is_admin`.
+  const role = (r.role ? String(r.role) : (r.is_admin ? "division_admin" : "staff")) as UserRole;
   return {
     id: String(r.id), username: String(r.username), lastName: String(r.last_name),
     firstName: String(r.first_name), middleName: String(r.middle_name),
@@ -2342,7 +2659,9 @@ function rowToUser(r: Record<string, unknown>): UserProfile {
     designation: String(r.designation), position: String(r.position),
     natureOfWork: String(r.nature_of_work ?? ""),
     mobilePhone: String(r.mobile_phone), email: String(r.email), password: String(r.password),
-    isAdmin: Boolean(r.is_admin), profilePicture: String(r.profile_picture ?? ""),
+    division: DIVISIONS[division] ? division : "LITM", role,
+    isAdmin: role === "division_admin" || role === "super_admin",
+    profilePicture: String(r.profile_picture ?? ""),
   };
 }
 
@@ -2426,12 +2745,15 @@ function rowToChatMessage(r: Record<string, unknown>): ChatMessage {
     id: String(r.id), senderId: String(r.sender_id), senderName: String(r.sender_name),
     senderPicture: (r.sender_picture as string | null) ?? undefined,
     message: String(r.message), createdAt: String(r.created_at),
+    // Rows written before chat became division-scoped default to LITM (the only division that existed then).
+    division: (r.division ? String(r.division) : "LITM") as DivisionCode,
   };
 }
 function chatMessageToRow(m: ChatMessage): Record<string, unknown> {
   return {
     id: m.id, sender_id: m.senderId, sender_name: m.senderName,
     sender_picture: m.senderPicture ?? null, message: m.message, created_at: m.createdAt,
+    division: m.division,
   };
 }
 
@@ -2584,9 +2906,9 @@ export default function App() {
     (async () => {
       try {
         const rows = await getAll<Record<string, unknown>>(TABLES.CHAT_MESSAGES);
-        const alreadyPosted = rows.some(r => String(r.message ?? "").startsWith(heading));
-        if (alreadyPosted || cancelled) return;
 
+        // Chatrooms are per-division, so the overdue report is posted once per
+        // division into that division's own room (dedupe check is per-division too).
         const overdueByUser: { user: UserProfile; items: { title: string; parentTitle: string; date: string }[] }[] = [];
         for (const u of users) {
           if (u.isAdmin) continue;
@@ -2601,17 +2923,29 @@ export default function App() {
         }
         if (overdueByUser.length === 0 || cancelled) return;
 
-        const body = overdueByUser.map(({ user, items }) => {
-          const taskLines = items.map(it => `   • ${it.title} (${it.parentTitle}) — was due ${formatDisplay(it.date)}`).join("\n");
-          return `${getFullName(user)}:\n${taskLines}`;
-        }).join("\n\n");
+        const byDivision = new Map<DivisionCode, typeof overdueByUser>();
+        overdueByUser.forEach(entry => {
+          const list = byDivision.get(entry.user.division) ?? [];
+          list.push(entry);
+          byDivision.set(entry.user.division, list);
+        });
 
-        const announcement: ChatMessage = {
-          id: genId(), senderId: "system", senderName: "System",
-          message: `${heading}\nThe following staff have overdue task(s):\n\n${body}`,
-          createdAt: nowISO(),
-        };
-        await insertRecord(TABLES.CHAT_MESSAGES, chatMessageToRow(announcement));
+        for (const [division, entries] of byDivision) {
+          const alreadyPosted = rows.some(r => String(r.message ?? "").startsWith(heading) && String(r.division ?? "LITM") === division);
+          if (alreadyPosted) continue;
+
+          const body = entries.map(({ user, items }) => {
+            const taskLines = items.map(it => `   • ${it.title} (${it.parentTitle}) — was due ${formatDisplay(it.date)}`).join("\n");
+            return `${getFullName(user)}:\n${taskLines}`;
+          }).join("\n\n");
+
+          const announcement: ChatMessage = {
+            id: genId(), senderId: "system", senderName: "System",
+            message: `${heading}\nThe following staff have overdue task(s):\n\n${body}`,
+            createdAt: nowISO(), division,
+          };
+          await insertRecord(TABLES.CHAT_MESSAGES, chatMessageToRow(announcement));
+        }
       } catch (err) {
         console.error("Overdue task announcement failed:", err);
       }
@@ -2740,6 +3074,22 @@ export default function App() {
       await updateRecord(TABLES.USERS, { ...userToRow(u), id: u.id } as Record<string,unknown> & { id: string });
     } catch (err) {
       console.error("Failed to update profile in Supabase:", err);
+    }
+  }
+
+  /** Only a super_admin can call this (enforced by the Admin Management page being
+   *  gated on role==="super_admin"). Promotes/demotes a user between staff and
+   *  division_admin for their own division, or grants/revokes department-wide super_admin. */
+  async function handleChangeUserRole(userId: string, role: UserRole){
+    const target = users.find(u => u.id === userId);
+    if (!target) return;
+    const updated: UserProfile = { ...target, role, isAdmin: role === "division_admin" || role === "super_admin" };
+    setUsers(p => p.map(x => x.id === userId ? updated : x));
+    if (currentUser?.id === userId) setCurrentUser(updated);
+    try {
+      await updateRecord(TABLES.USERS, { ...userToRow(updated), id: userId } as Record<string,unknown> & { id: string });
+    } catch (err) {
+      console.error("Failed to update user role in Supabase:", err);
     }
   }
 
@@ -2887,6 +3237,17 @@ export default function App() {
 
   const myTasks = allTasks[currentUser.id]??[];
 
+  // Division scoping for admin views: a division_admin only ever sees their own
+  // division's people and data; the department-wide super_admin sees everyone.
+  const scopedUserIds = new Set(
+    users.filter(u => currentUser.role === "super_admin" || u.division === currentUser.division).map(u => u.id)
+  );
+  const scopedUsers = users.filter(u => scopedUserIds.has(u.id));
+  const scopedSubmissions = submissions.filter(s => scopedUserIds.has(s.userId));
+  const scopedLeaveRequests = leaveRequests.filter(r => scopedUserIds.has(r.userId));
+  const scopedNotifications = notifications.filter(n => scopedUserIds.has(n.userId));
+  const scopedAllTasks: TasksData = Object.fromEntries(Object.entries(allTasks).filter(([uid]) => scopedUserIds.has(uid)));
+
   return (
     <div className="min-h-screen bg-background">
       <TopNav user={currentUser} page={page} setPage={setPage} onSignOut={handleSignOut} unreadCount={unreadCount}/>
@@ -2895,12 +3256,13 @@ export default function App() {
         {page==="profile" && <ProfilePage user={currentUser} onUpdate={handleUpdateProfile}/>}
         {page==="tasks" && <MyTasksPage tasks={myTasks} onUpdateTasks={handleUpdateMyTasks}/>}
         {page==="accomplishments" && <MyAccomplishmentsPage tasks={myTasks} currentUser={currentUser} accomplishmentLogs={accomplishmentLogs}/>}
-        {page==="monitoring" && currentUser.isAdmin && <MonitoringPage users={users} allTasks={allTasks} leaveRequests={leaveRequests}/>}
-        {page==="history" && currentUser.isAdmin && <HistoryPage submissions={submissions} allUsers={users}/>}
+        {page==="forms" && <FormsPage currentUser={currentUser} leaveRequests={leaveRequests} onSubmitLeave={handleSubmitLeave}/>}
+        {page==="monitoring" && currentUser.isAdmin && <MonitoringPage users={scopedUsers} allTasks={scopedAllTasks} leaveRequests={scopedLeaveRequests}/>}
+        {page==="history" && currentUser.isAdmin && <HistoryPage submissions={scopedSubmissions} allUsers={scopedUsers}/>}
         {page==="notifications" && currentUser.isAdmin && (
           <AdminNotificationsPage
-            notifications={notifications} submissions={submissions} leaveRequests={leaveRequests}
-            allTasks={allTasks} allUsers={users}
+            notifications={scopedNotifications} submissions={scopedSubmissions} leaveRequests={scopedLeaveRequests}
+            allTasks={scopedAllTasks} allUsers={scopedUsers}
             onApproveSubmission={handleApproveSubmission} onReturnSubmission={handleReturnSubmission}
             onApproveLeave={handleApproveLeave} onReturnLeave={handleReturnLeave}
             onMarkRead={handleMarkRead} onDelete={handleDeleteNotification}
@@ -2914,6 +3276,9 @@ export default function App() {
             onMarkRead={handleMarkRead}
             onDelete={handleDeleteNotification}
           />
+        )}
+        {page==="admin" && currentUser.role==="super_admin" && (
+          <AdminManagementPage users={users} currentUser={currentUser} onChangeRole={handleChangeUserRole}/>
         )}
       </main>
       <FloatingChatWidget currentUser={currentUser} allUsers={users}/>
