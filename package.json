@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint . --fix",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "seed:admins": "node scripts/create-admin-accounts.mjs"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

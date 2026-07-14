@@ -10,6 +10,12 @@ dist-ssr/
 .env
 .env.local
 .env.*.local
+.env.scripts
+
+# Generated credentials — NEVER commit these (see scripts/create-admin-accounts.mjs)
+credentials*.csv
+credentials*.md
+*-credentials.*
 
 # Editor & OS
 .DS_Store

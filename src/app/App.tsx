@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import {
-  getAll, insertRecord, updateRecord, deleteRecord, TABLES, uploadImageToStorage, subscribeToTable,
+  supabase, getAll, insertRecord, updateRecord, deleteRecord, TABLES, uploadImageToStorage, subscribeToTable,
 } from "@/lib/supabase";
 import {
   generateAccomplishmentReport, generateAccomplishmentHistory, formatDateRange,
@@ -53,7 +53,11 @@ type UserRole = "staff" | "division_admin" | "super_admin";
 interface UserProfile {
   id: string; username: string; lastName: string; firstName: string;
   middleName: string; suffix: string; nickname: string; designation: string;
-  position: string; natureOfWork: string; mobilePhone: string; email: string; password: string;
+  position: string; natureOfWork: string; mobilePhone: string; email: string;
+  // NOTE: passwords are never stored on the profile object or in the database anymore.
+  // Authentication is handled entirely by Supabase Auth (see supabase.auth.* calls in
+  // SignInPage / RegisterPage / ChangePasswordModal below), which hashes and stores
+  // credentials server-side. `id` here is the Supabase Auth user id (auth.uid()).
   division: DivisionCode; role: UserRole;
   /** Derived convenience flag: true for division_admin AND super_admin. Kept so existing
    *  admin-gated UI ("if (user.isAdmin)") continues to work without a rewrite. */
@@ -246,13 +250,14 @@ function smartGenerateDailyTasks(weekly: WeeklyTask, config: DomainConfig, poolO
 // ─────────────────────────────────────────────────────────────
 
 const TODAY = todayISO();
-const INITIAL_USERS: UserProfile[] = [
-  makeUser({ id: "u-admin", username: "admin", lastName: "Reyes", firstName: "Maria", middleName: "Santos", suffix: "", nickname: "Mari", designation: "Department Head", position: "CEDO Department Head", natureOfWork: "Department Administration", mobilePhone: "09171234567", email: "admin@cedo.gov.ph", password: "admin123", division: "LITM", role: "super_admin", profilePicture: "" }),
-  makeUser({ id: "u-admin2", username: "admin2", lastName: "Bautista", firstName: "Ramon", middleName: "Garcia", suffix: "", nickname: "Ramon", designation: "Division Head", position: "LITM Division Head", natureOfWork: "Information Systems Management", mobilePhone: "09171234568", email: "admin2@litm.gov.ph", password: "admin123", division: "LITM", role: "division_admin", profilePicture: "" }),
-  makeUser({ id: "u-001", username: "jcruz", lastName: "Cruz", firstName: "Jose", middleName: "Manuel", suffix: "Jr.", nickname: "Jojo", designation: "IT Specialist II", position: "Systems Analyst", natureOfWork: "Systems Development and Analysis", mobilePhone: "09281234567", email: "jose.cruz@litm.gov.ph", password: "staff123", division: "LITM", role: "staff", profilePicture: "" }),
-  makeUser({ id: "u-002", username: "adelacruz", lastName: "Dela Cruz", firstName: "Ana", middleName: "Bautista", suffix: "", nickname: "Annie", designation: "IT Specialist I", position: "Network Administrator", natureOfWork: "Network and Infrastructure Support", mobilePhone: "09301234567", email: "ana.delacruz@litm.gov.ph", password: "staff123", division: "LITM", role: "staff", profilePicture: "" }),
-  makeUser({ id: "u-003", username: "msantos", lastName: "Santos", firstName: "Mark", middleName: "David", suffix: "", nickname: "Marky", designation: "IT Officer I", position: "Database Administrator", natureOfWork: "Database Management", mobilePhone: "09191234567", email: "mark.santos@litm.gov.ph", password: "staff123", division: "LITM", role: "staff", profilePicture: "" }),
-];
+// Seed accounts used to be hardcoded here with plaintext passwords and inserted
+// directly into the database on first load. That is no longer done: accounts are
+// now created through Supabase Auth (self-registration via SignInPage/RegisterPage,
+// or pre-provisioned admin accounts via scripts/create-admin-accounts.mjs), which
+// hashes and stores credentials server-side. This app never stores a plaintext
+// password anywhere after the person types it in. See
+// supabase_migration_auth_and_admins.sql and scripts/create-admin-accounts.mjs.
+const INITIAL_USERS: UserProfile[] = [];
 function buildSeedTasks(): TasksData {
   const now = new Date(); const m = now.getMonth(); const y = now.getFullYear(); const t: TasksData = {};
   const u1mt: MonthlyTask = { id: seedId("u-001","mt",0), title: "Q2 IT Infrastructure Assessment", deliverables: [{ id: seedId("u-001","mt",0,"d",0), title: "Infrastructure Inventory Report", status: "done" }, { id: seedId("u-001","mt",0,"d",1), title: "Assessment Summary Presentation", status: "pending" }], month: m, year: y, status: "in-progress", weeklyTasks: [] };
@@ -320,10 +325,25 @@ function leaveDisplayStatus(status: string): string {
 // SIGN-IN PAGE
 // ─────────────────────────────────────────────────────────────
 function SignInPage({ users, onSignIn, onGoRegister }: { users: UserProfile[]; onSignIn: (u: UserProfile) => void; onGoRegister: () => void }) {
-  const [username, setUsername] = useState(""); const [password, setPassword] = useState(""); const [error, setError] = useState("");
-  function handleSignIn() {
-    const found = users.find(u => (u.username === username || u.email === username) && u.password === password);
-    if (found) { setError(""); onSignIn(found); } else setError("Incorrect username or password.");
+  const [username, setUsername] = useState(""); const [password, setPassword] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
+  async function handleSignIn() {
+    if (!username || !password) { setError("Please enter your username/email and password."); return; }
+    setBusy(true); setError("");
+    try {
+      const resolvedEmail = username.includes("@")
+        ? username
+        : users.find(u => u.username.toLowerCase() === username.toLowerCase())?.email;
+      if (!resolvedEmail) { setError("Incorrect username or password."); setBusy(false); return; }
+      const { data, error: authError } = await supabase.auth.signInWithPassword({ email: resolvedEmail, password });
+      if (authError || !data.user) { setError("Incorrect username or password."); setBusy(false); return; }
+      const profile = await fetchUserProfile(data.user.id);
+      if (!profile) { setError("Signed in, but no profile was found for this account. Contact an administrator."); setBusy(false); return; }
+      onSignIn(profile);
+    } catch {
+      setError("Something went wrong while signing in. Please try again.");
+    } finally {
+      setBusy(false);
+    }
   }
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -344,7 +364,7 @@ function SignInPage({ users, onSignIn, onGoRegister }: { users: UserProfile[]; o
               <FormField label="Password" value={password} onChange={setPassword} type="password" placeholder="••••••••" autoComplete="current-password" />
             </div>
             <div className="flex flex-col gap-3 mt-6">
-              <button type="submit" className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all">Sign In</button>
+              <button type="submit" disabled={busy} className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all disabled:opacity-60">{busy ? "Signing in…" : "Sign In"}</button>
               <button type="button" onClick={onGoRegister} className="w-full py-2.5 rounded-xl border border-border text-foreground text-sm font-medium hover:bg-muted transition-all">Create New Account</button>
             </div>
           </form>
@@ -359,15 +379,42 @@ function SignInPage({ users, onSignIn, onGoRegister }: { users: UserProfile[]; o
 // REGISTER PAGE
 // ─────────────────────────────────────────────────────────────
 function RegisterPage({ users, onRegister, onBack }: { users: UserProfile[]; onRegister: (u: UserProfile) => void; onBack: () => void }) {
-  const [lastName, setLastName] = useState(""); const [firstName, setFirstName] = useState(""); const [middleName, setMiddleName] = useState(""); const [suffix, setSuffix] = useState(""); const [nickname, setNickname] = useState(""); const [username, setUsername] = useState(""); const [designation, setDesignation] = useState(""); const [position, setPosition] = useState(""); const [natureOfWork, setNatureOfWork] = useState(""); const [mobilePhone, setMobilePhone] = useState(""); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [confirmPassword, setConfirmPassword] = useState(""); const [division, setDivision] = useState<DivisionCode | "">(""); const [error, setError] = useState("");
-  function handleRegister() {
+  const [lastName, setLastName] = useState(""); const [firstName, setFirstName] = useState(""); const [middleName, setMiddleName] = useState(""); const [suffix, setSuffix] = useState(""); const [nickname, setNickname] = useState(""); const [username, setUsername] = useState(""); const [designation, setDesignation] = useState(""); const [position, setPosition] = useState(""); const [natureOfWork, setNatureOfWork] = useState(""); const [mobilePhone, setMobilePhone] = useState(""); const [email, setEmail] = useState(""); const [password, setPassword] = useState(""); const [confirmPassword, setConfirmPassword] = useState(""); const [division, setDivision] = useState<DivisionCode | "">(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
+  async function handleRegister() {
     if (!lastName||!firstName||!middleName||!nickname||!username||!designation||!position||!natureOfWork||!mobilePhone||!email||!password) { setError("Please fill in all required fields."); return; }
     if (!division) { setError("Please select your Division."); return; }
     if (users.some(u => u.username === username)) { setError("Username already taken."); return; }
+    if (users.some(u => u.email.toLowerCase() === email.toLowerCase())) { setError("An account with this email already exists."); return; }
     if (password !== confirmPassword) { setError("Passwords do not match."); return; }
     if (password.length < 6) { setError("Password must be at least 6 characters."); return; }
-    setError("");
-    onRegister(makeUser({ id:genId(),username,lastName,firstName,middleName,suffix,nickname,designation,position,natureOfWork,mobilePhone,email,password,division,role:"staff",profilePicture:"" }));
+    setError(""); setBusy(true);
+    try {
+      // Supabase Auth handles hashing + storage of the password server-side.
+      // Nothing password-related is ever written to the `users` profile table.
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email, password,
+        options: { data: { username, division, role: "staff" } },
+      });
+      if (signUpError || !data.user) {
+        setError(signUpError?.message || "Could not create account. Please try again.");
+        setBusy(false);
+        return;
+      }
+      const newUser = makeUser({ id: data.user.id, username, lastName, firstName, middleName, suffix, nickname, designation, position, natureOfWork, mobilePhone, email, division, role: "staff", profilePicture: "" });
+      if (!data.session) {
+        // Project has email confirmation enabled: no session yet, so we can't sign
+        // the person in immediately. Still create their profile row so it's ready
+        // the moment they confirm their email and sign in.
+        setError("");
+        setBusy(false);
+        onRegister(newUser); // parent still inserts the profile row + shows a "check your email" state
+        return;
+      }
+      onRegister(newUser);
+    } catch {
+      setError("Something went wrong while creating your account. Please try again.");
+      setBusy(false);
+    }
   }
   const previewLogo = division ? DIVISIONS[division].logo : CEDOSeal;
   return (
@@ -416,7 +463,7 @@ function RegisterPage({ users, onRegister, onBack }: { users: UserProfile[]; onR
           </div>
           <div className="flex gap-3 mt-6">
             <button onClick={onBack} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-all">Back to Sign In</button>
-            <button onClick={handleRegister} className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all">Register</button>
+            <button onClick={handleRegister} disabled={busy} className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all disabled:opacity-60">{busy ? "Creating account…" : "Register"}</button>
           </div>
         </div>
       </div>
@@ -1246,25 +1293,39 @@ function ProfilePage({ user, onUpdate }: { user: UserProfile; onUpdate: (u: User
         </div>
       </div>
       {showCamera && <Modal title="Take Profile Photo" onClose={closeCamera}><div className="space-y-4"><video ref={videoRef} autoPlay playsInline className="w-full rounded-xl bg-black"/><canvas ref={canvasRef} className="hidden"/><div className="flex gap-3"><button onClick={closeCamera} className="flex-1 py-2 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-all">Cancel</button><button onClick={capturePhoto} className="flex-1 py-2 rounded-xl bg-accent text-accent-foreground text-sm font-semibold hover:bg-accent/80 transition-all">Capture Photo</button></div></div></Modal>}
-      {showChangePassword && <ChangePasswordModal user={user} onSubmit={(newPassword)=>{onUpdate({...user,password:newPassword});setShowChangePassword(false);}} onClose={()=>setShowChangePassword(false)}/>}
+      {showChangePassword && <ChangePasswordModal user={user} onDone={()=>setShowChangePassword(false)} onClose={()=>setShowChangePassword(false)}/>}
     </div>
   );
 }
 
-function ChangePasswordModal({ user, onSubmit, onClose }: { user: UserProfile; onSubmit: (newPassword: string) => void; onClose: () => void }) {
+function ChangePasswordModal({ user, onDone, onClose }: { user: UserProfile; onDone: () => void; onClose: () => void }) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  function handleSubmit() {
+  async function handleSubmit() {
     if (!currentPassword || !newPassword || !confirmPassword) { setError("Please fill in all fields."); return; }
-    if (currentPassword !== user.password) { setError("Your current password is incorrect."); return; }
     if (newPassword.length < 6) { setError("New password must be at least 6 characters."); return; }
     if (newPassword !== confirmPassword) { setError("New password and confirmation do not match."); return; }
     if (newPassword === currentPassword) { setError("New password must be different from your current password."); return; }
-    setError("");
-    onSubmit(newPassword);
+    setError(""); setBusy(true);
+    try {
+      // Re-authenticate with the current password first — this is how we verify
+      // "your current password is correct" without ever storing or comparing
+      // passwords ourselves. Supabase Auth does the check server-side.
+      const { error: reauthError } = await supabase.auth.signInWithPassword({ email: user.email, password: currentPassword });
+      if (reauthError) { setError("Your current password is incorrect."); setBusy(false); return; }
+
+      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+      if (updateError) { setError(updateError.message || "Could not update your password. Please try again."); setBusy(false); return; }
+
+      onDone();
+    } catch {
+      setError("Something went wrong while updating your password. Please try again.");
+      setBusy(false);
+    }
   }
 
   return (
@@ -1285,7 +1346,7 @@ function ChangePasswordModal({ user, onSubmit, onClose }: { user: UserProfile; o
         {error && <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2"><AlertCircle size={13} className="flex-shrink-0"/><span>{error}</span></div>}
         <div className="flex gap-3">
           <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted transition-all">Cancel</button>
-          <button onClick={handleSubmit} className="flex-1 py-2.5 rounded-xl bg-accent text-accent-foreground text-sm font-semibold hover:bg-accent/80 transition-all">Update Password</button>
+          <button onClick={handleSubmit} disabled={busy} className="flex-1 py-2.5 rounded-xl bg-accent text-accent-foreground text-sm font-semibold hover:bg-accent/80 transition-all disabled:opacity-60">{busy ? "Updating…" : "Update Password"}</button>
         </div>
       </div>
     </Modal>
@@ -2399,6 +2460,7 @@ function AdminManagementPage({ users, currentUser, onChangeRole }: {
       <div>
         <h1 className="text-xl font-bold text-foreground">Admin Management</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Assign Division Admins and manage department-wide access. Only the Department Admin can make these changes.</p>
+        <p className="text-xs text-muted-foreground mt-1">To provision a brand-new admin account with its own login, run <code className="px-1 py-0.5 rounded bg-muted">node scripts/create-admin-accounts.mjs</code> (requires the Supabase service-role key, kept outside the app). This page only promotes or demotes accounts that already exist.</p>
       </div>
 
       <select value={filterDivision} onChange={e => setFilterDivision(e.target.value as DivisionCode | "all")}
@@ -2635,13 +2697,15 @@ function FloatingChatWidget({ currentUser, allUsers }: { currentUser: UserProfil
 // SUPABASE SYNC HELPERS
 // ─────────────────────────────────────────────────────────────
 
-/** Converts a UserProfile to a Supabase row object (snake_case columns). */
+/** Converts a UserProfile to a Supabase row object (snake_case columns).
+ *  No password field: credentials live only in Supabase Auth (auth.users),
+ *  never in this profile table. */
 function userToRow(u: UserProfile): Record<string, unknown> {
   return {
     id: u.id, username: u.username, last_name: u.lastName, first_name: u.firstName,
     middle_name: u.middleName, suffix: u.suffix, nickname: u.nickname,
     designation: u.designation, position: u.position, nature_of_work: u.natureOfWork, mobile_phone: u.mobilePhone,
-    email: u.email, password: u.password, is_admin: u.isAdmin,
+    email: u.email, is_admin: u.isAdmin,
     division: u.division, role: u.role,
     profile_picture: u.profilePicture,
   };
@@ -2658,11 +2722,18 @@ function rowToUser(r: Record<string, unknown>): UserProfile {
     suffix: String(r.suffix ?? ""), nickname: String(r.nickname),
     designation: String(r.designation), position: String(r.position),
     natureOfWork: String(r.nature_of_work ?? ""),
-    mobilePhone: String(r.mobile_phone), email: String(r.email), password: String(r.password),
+    mobilePhone: String(r.mobile_phone), email: String(r.email),
     division: DIVISIONS[division] ? division : "LITM", role,
     isAdmin: role === "division_admin" || role === "super_admin",
     profilePicture: String(r.profile_picture ?? ""),
   };
+}
+
+/** Fetches a single profile row by its Supabase Auth user id (auth.uid()). */
+async function fetchUserProfile(authUserId: string): Promise<UserProfile | null> {
+  const { data, error } = await supabase.from(TABLES.USERS).select("*").eq("id", authUserId).maybeSingle();
+  if (error || !data) return null;
+  return rowToUser(data as Record<string, unknown>);
 }
 
 /** Converts a Supabase notification row back to AppNotification. */
@@ -2762,6 +2833,11 @@ function chatMessageToRow(m: ChatMessage): Record<string, unknown> {
 // ─────────────────────────────────────────────────────────────
 export default function App() {
   const [authPage, setAuthPage] = useState<"signin"|"register">("signin");
+  // Only a non-sensitive cache of the profile is kept in localStorage, purely so the
+  // UI can render instantly on refresh instead of flashing a blank sign-in screen.
+  // It is NOT the source of truth for whether someone is authenticated — that's
+  // Supabase Auth's own session (see the useEffect below), which is what all reads
+  // and writes are actually gated on server-side.
   const [currentUser, setCurrentUser] = useState<UserProfile|null>(() => {
     try {
       const saved = localStorage.getItem("litm_current_user");
@@ -2784,6 +2860,40 @@ export default function App() {
         : n.type === "submission" && n.userId === currentUser?.id
     )
   ).length;
+
+  // ── Verify / restore the real Supabase Auth session on mount, and stay in sync
+  //    with it going forward (e.g. token refresh, or signing out in another tab).
+  //    The localStorage-cached `currentUser` above is only a fast-render hint; this
+  //    effect is what actually confirms someone is logged in and loads their profile.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (!session?.user) {
+        // No valid Supabase Auth session — don't trust the cached profile.
+        setCurrentUser(null);
+        try { localStorage.removeItem("litm_current_user"); } catch { /* ignore */ }
+        return;
+      }
+      const profile = await fetchUserProfile(session.user.id);
+      if (cancelled) return;
+      if (profile) {
+        setCurrentUser(profile);
+        try { localStorage.setItem("litm_current_user", JSON.stringify(profile)); } catch { /* ignore */ }
+      }
+    })();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") {
+        setCurrentUser(null);
+        setAuthPage("signin");
+        try { localStorage.removeItem("litm_current_user"); } catch { /* ignore */ }
+      }
+    });
+
+    return () => { cancelled = true; subscription.unsubscribe(); };
+  }, []);
 
   // ── Load users + restore task statuses from Supabase on mount ─
   useEffect(() => {
@@ -2809,26 +2919,14 @@ export default function App() {
             try { await (await import("@/lib/supabase")).supabase.from(TABLES.USERS).delete().eq("id", trial.id); } catch { /* ignore */ }
           }
           setUsers(liveUsers.filter(u => u.username !== "testuser" && u.id !== "u-test"));
-          // Ensure both seeded admin accounts exist — and have a working password —
-          // even on an already-initialized database (fixes "invalid password" for an
-          // admin row that was partially created, e.g. by an earlier manual insert).
-          for (const admin of INITIAL_USERS.filter(u => u.isAdmin)) {
-            const existing = liveUsers.find(u => u.id === admin.id || u.username === admin.username);
-            if (!existing) {
-              try { await insertRecord(TABLES.USERS, userToRow(admin)); setUsers(p => [...p, admin]); }
-              catch (e) { console.error(`Failed to seed admin account ${admin.username}:`, e); }
-            } else if (!existing.password) {
-              try {
-                await updateRecord(TABLES.USERS, { ...userToRow(admin), id: existing.id });
-                setUsers(p => p.map(u => u.id === existing.id ? { ...u, password: admin.password } : u));
-              } catch (e) { console.error(`Failed to repair admin account ${admin.username}:`, e); }
-            }
-          }
-        } else {
-          for (const u of INITIAL_USERS) {
-            await insertRecord(TABLES.USERS, userToRow(u));
-          }
+          // Admin accounts are no longer seeded/repaired here. They're pre-provisioned
+          // once via `node scripts/create-admin-accounts.mjs` (which uses the Supabase
+          // service-role key to create real Auth users + matching profile rows), so
+          // there's nothing for the client to insert or "fix" on every page load.
         }
+        // Note: if dbUsers is empty on a brand-new database, profile rows simply don't
+        // exist yet — they're created by the admin seed script and by RegisterPage on
+        // self-registration, never auto-inserted here with placeholder credentials.
 
         // Restore submission + notification + leave state
         if (dbSubs.length) {
@@ -3047,7 +3145,13 @@ export default function App() {
     };
   }, [currentUser]);
   function handleSignIn(u: UserProfile){setCurrentUser(u);setPage("home");try{localStorage.setItem("litm_current_user",JSON.stringify(u));}catch{/* ignore */}}
-  function handleSignOut(){setCurrentUser(null);setAuthPage("signin");try{localStorage.removeItem("litm_current_user");}catch{/* ignore */}}
+  function handleSignOut(){
+    setCurrentUser(null);setAuthPage("signin");
+    try{localStorage.removeItem("litm_current_user");}catch{/* ignore */}
+    // Also end the real Supabase Auth session (clears its own storage + revokes the
+    // refresh token server-side), not just this app's local UI state.
+    supabase.auth.signOut().catch(()=>{/* ignore — local state is already cleared */});
+  }
 
   async function handleRegister(u: UserProfile){
     // 1. Update local state immediately so UI responds fast

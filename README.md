@@ -128,3 +128,37 @@ function MyComponent() {
   return <button onClick={loadUsers}>Load Users</button>
 }
 ```
+
+---
+
+## Authentication & Admin Accounts
+
+Sign-in, registration, and password changes are handled entirely by
+**Supabase Auth** — passwords are hashed and stored server-side by Supabase,
+never in this app's own `users` table and never in plaintext anywhere.
+
+### One-time setup (per Supabase project)
+
+1. Run `supabase_migration_divisions.sql` (if you haven't already).
+2. Run `supabase_migration_auth_and_admins.sql` in the Supabase SQL editor.
+   This drops the old plaintext `password` column and turns on Row Level
+   Security. Read the comments at the top of that file first — it deletes
+   any leftover demo/seed rows that aren't backed by a real Supabase Auth
+   account.
+3. Provision admin accounts:
+   ```bash
+   cp .env.scripts.example .env.scripts
+   # fill in SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (Settings → API)
+   npm run seed:admins
+   ```
+   This creates 9 admin accounts — 1 department-wide Super Admin and 2
+   Division Admins each for LITM, SEAD, Administrative & Finance, and
+   EPDPM — and prints their generated passwords **once**, in your terminal.
+   Save them to a password manager immediately; the script never writes
+   them to a file. `.env.scripts` is git-ignored and must never be
+   committed or shipped to the browser.
+4. Everyone should change their password after first login: **Profile →
+   Security → Change Password**.
+
+Regular staff accounts are created by self-registration on the sign-in
+screen and don't need the script.
